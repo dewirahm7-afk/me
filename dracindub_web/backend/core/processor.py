@@ -15,7 +15,7 @@ from core.diarization import DiarizationEngine
 from core.translation import TranslationEngine
 from core.tts_export import TTSExportEngine
 from core.session_manager import SessionManager
-
+        
 # Use absolute path to parent directory
 PROJECT_ROOT = Path(r"D:\xiaodub")  # Absolute path ke folder dimana file engine berada
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -161,129 +161,57 @@ class ProcessingManager:
         
         await self._notify_session_update(session_id)
     
-    async def run_diarization(self, session_id: str, diarization_config: Dict[str, Any]):
-        session = self.session_manager.get_session(session_id)
+    # === REPLACE SELURUH FUNGSI INI ===
+    async def run_diarization(self, session_id: str, cfg: dict):
+        from pathlib import Path
+        from core.diarization import DiarizationEngine
+
+        # Validasi session & file audio 16k (hasil extract-audio)
+        session = self.get_session(session_id)
         if not session:
             raise ValueError("Session not found")
-        
-        self.session_manager.update_session(session_id, 
-                                          status='running_diarization',
-                                          current_step='Speaker diarization and gender detection')
-        await self._notify_session_update(session_id)
-        
-        # Run REAL diarization using dracin_gender
-        def _run_diarization():
-            try:
-                import sys
-                sys.path.append(str(Path(__file__).parent.parent.parent))
-                
-                from dracin_gender import main as diarization_main
-                import argparse
-                
-                # Prepare arguments for dracin_gender
-                class Args:
-                    def __init__(self):
-                        self.audio = str(session.wav_16k)
-                        self.male_ref = diarization_config['male_ref']
-                        self.female_ref = diarization_config['female_ref']
-                        self.outdir = str(session.workdir)
-                        self.top_n = diarization_config['top_n']
-                        self.hf_token = diarization_config['hf_token']
-                        self.use_gpu = diarization_config['use_gpu']
-                
-                args = Args()
-                
-                # Run actual diarization
-                diarization_main(args)
-                
-                # Find generated files
-                audio_stem = session.wav_16k.stem
-                seg_json = session.workdir / f"{audio_stem}_segments.json"
-                spk_json = session.workdir / f"{audio_stem}_speakers.json"
-                
-                if seg_json.exists() and spk_json.exists():
-                    self.session_manager.update_session(session_id, 
-                                                      segjson=seg_json,
-                                                      spkjson=spk_json)
-                    return True
-                else:
-                    return "Diarization output files not found"
-                    
-            except Exception as e:
-                return str(e)
-        
-        result = await asyncio.get_event_loop().run_in_executor(
-            self.executor, _run_diarization
+        if not getattr(session, "wav_16k", None):
+            raise ValueError("16kHz audio not found. Run extract-audio first")
+
+        workdir = Path(session.workdir)
+        workdir.mkdir(parents=True, exist_ok=True)
+
+        # Jalankan diarization via engine yang sudah kamu buat
+        engine = DiarizationEngine()
+
+        # progress_callback opsional; di sini cukup no-op (engine akan jalan di executor)
+        def progress_callback(percent: int, step: str = "Diarization"):
+            # Bisa diisi update ringan kalau mau; jangan await di sini.
+            pass
+
+        result = await engine.process(session, cfg, progress_callback)
+
+        # Normalisasi hasil
+        if not isinstance(result, dict) or not result.get("success"):
+            raise RuntimeError(result.get("error", "Diarization failed"))
+
+        data = result.get("data", {})
+        seg_path = Path(data.get("segjson"))
+        spk_path = Path(data.get("spkjson"))
+
+        if not seg_path or not seg_path.exists() or not spk_path or not spk_path.exists():
+            raise RuntimeError("Diarization finished but output files not found")
+
+        # Simpan ke session dan kirim update
+        self.session_manager.update_session(
+            session_id,
+            segjson=seg_path,
+            spkjson=spk_path,
+            status="diarization_complete",
+            progress=70,
+            current_step="Diarization done",
         )
-        
-        if result is True:
-            self.session_manager.update_session(session_id, 
-                                              status='diarization_complete',
-                                              progress=70)
-        else:
-            self.session_manager.update_session(session_id, 
-                                              status='error',
-                                              error=result)
-        
         await self._notify_session_update(session_id)
-    
-    async def run_translation(self, session_id: str, translation_config: Dict[str, Any]):
-        session = self.session_manager.get_session(session_id)
-        if not session:
-            raise ValueError("Session not found")
-        
-        self.session_manager.update_session(session_id, 
-                                          status='translating',
-                                          current_step='DeepSeek translation')
-        await self._notify_session_update(session_id)
-        
-        # Run REAL translation using deepseek_mt
-        def _run_translation():
-            try:
-                import sys
-                sys.path.append(str(Path(__file__).parent.parent.parent))
-                
-                from deepseek_mt import translate_srt_realtime
-                
-                srt_path = session.srt_path
-                srt_out = srt_path.with_suffix('.id.srt')
-                cache_path = session.workdir / "translate_cache.json"
-                
-                # Run actual translation
-                translated_lines = translate_srt_realtime(
-                    srt_in=srt_path,
-                    srt_out=srt_out,
-                    api_key=translation_config['api_key'],
-                    batch=translation_config['batch_size'],
-                    workers=translation_config['workers'],
-                    timeout=translation_config['timeout'],
-                    cache_json=cache_path
-                )
-                
-                if srt_out.exists():
-                    self.session_manager.update_session(session_id, 
-                                                      srt_id=srt_out)
-                    return True
-                else:
-                    return "Translation output file not found"
-                    
-            except Exception as e:
-                return str(e)
-        
-        result = await asyncio.get_event_loop().run_in_executor(
-            self.executor, _run_translation
-        )
-        
-        if result is True:
-            self.session_manager.update_session(session_id, 
-                                              status='translation_complete',
-                                              progress=90)
-        else:
-            self.session_manager.update_session(session_id, 
-                                              status='error',
-                                              error=result)
-        
-        await self._notify_session_update(session_id)
+
+        # Kembalikan format yang dipakai endpoint
+        return {"segments_path": seg_path, "speakers_path": spk_path}
+    # === END REPLACE ===
+
     
     async def run_tts_export(self, session_id: str, tts_config: Dict[str, Any]):
         session = self.session_manager.get_session(session_id)
