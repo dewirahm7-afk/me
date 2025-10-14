@@ -245,26 +245,26 @@ class DracinApp {
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium mb-2 text-gray-300">Male Reference</label>
-                            <input type="text" value="D:\\dubdracin\\samples\\male" 
+                            <input id="male-ref" type="text" value="D:\\dubdracin\\samples\\male" 
                                    class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white placeholder-gray-400">
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-2 text-gray-300">Female Reference</label>
-                            <input type="text" value="D:\\dubdracin\\samples\\female" 
+                            <input id="female-ref" type="text" value="D:\\dubdracin\\samples\\female" 
                                    class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white placeholder-gray-400">
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-2 text-gray-300">HF Token</label>
-                            <input type="password" placeholder="Enter HuggingFace token" 
+                            <input id="hf-token" type="password" placeholder="Enter HuggingFace token"
                                    class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white placeholder-gray-400">
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-2 text-gray-300">Top N Segments</label>
-                            <input type="number" value="5" 
+                            <input id="top-n" type="number" value="6" 
                                    class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white">
                         </div>
                         <div class="flex items-center mt-2">
-                            <input type="checkbox" id="use-gpu" checked class="mr-2 w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400">
+                            <input id="use-gpu" type="checkbox" id="use-gpu" checked class="mr-2 w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400">
                             <label for="use-gpu" class="text-gray-300">Use GPU for Diarization</label>
                         </div>
                     </div>
@@ -352,9 +352,9 @@ class DracinApp {
 		// Create session button
 		const createSessionBtn = document.getElementById('create-session');
 		if (createSessionBtn) {
-			createSessionBtn.addEventListener('click', () => {
-				this.createSession();
-			});
+		  createSessionBtn.addEventListener('click', () => {
+			this.createSessionWithFiles();
+		  });
 		}
 
 		// Other action buttons
@@ -593,8 +593,12 @@ class DracinApp {
 			
 			if (response.ok) {
 				const data = await response.json();
+				this.updateProgress(70, 'Diarization done');
+				if (data.segments_path && data.speakers_path) {
+				  this.appendLog(`Segments: ${data.segments_path}`);
+				  this.appendLog(`Speakers: ${data.speakers_path}`);
+				}
 				this.showNotification('Diarization completed successfully', 'success');
-				this.updateProgress(70, 'Diarization complete');
 			} else {
 				throw new Error('Failed to run diarization');
 			}
@@ -603,6 +607,16 @@ class DracinApp {
 		} finally {
 			this.hideLoading();
 		}
+	}
+
+	updateProgress(percent, message) {
+	  const bar   = document.getElementById('progress-bar');
+	  const pctEl = document.getElementById('progress-percent');
+	  const step  = document.getElementById('current-step');
+
+	  if (bar)   bar.style.width = `${Number(percent)||0}%`;
+	  if (pctEl) pctEl.textContent = `${Number(percent)||0}%`;
+	  if (step)  step.textContent = message || '';
 	}
 
 	loadToTranslate() {
