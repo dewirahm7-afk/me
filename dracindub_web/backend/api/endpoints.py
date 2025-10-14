@@ -1,4 +1,4 @@
-# backend/api/endpoints.py (FIXED ROUTES)
+# backend/api/endpoints.py
 from fastapi import APIRouter, UploadFile, File, Form, WebSocket, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
 import json
@@ -18,6 +18,7 @@ def get_processing_manager():
 def get_session_manager():
     return session_manager
 
+# ✅ ENDPOINT YANG SUDAH ADA
 @router.post("/api/session/create")
 async def create_session(
     video_name: str = Form(...),
@@ -34,6 +35,7 @@ async def create_session(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# ✅ ENDPOINT YANG SUDAH ADA
 @router.post("/api/session/{session_id}/upload")
 async def upload_files(
     session_id: str,
@@ -49,6 +51,8 @@ async def upload_files(
         return JSONResponse({"status": "files_uploaded"})
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# 🔥 ENDPOINT YANG PERLU DITAMBAHKAN:
 
 @router.post("/api/session/{session_id}/generate-workdir")
 async def generate_workdir(
@@ -141,6 +145,7 @@ async def run_tts_export(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# ✅ ENDPOINT GET YANG SUDAH ADA
 @router.get("/api/session/{session_id}")
 async def get_session(
     session_id: str,
