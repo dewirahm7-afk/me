@@ -505,26 +505,111 @@ class DracinApp {
 	}
 
 	handleSRTAction(action) {
+		console.log(`🔄 SRT Action: ${action}`);
+		
+		if (!this.currentSessionId) {
+			this.showNotification('Please create a session first', 'error');
+			return;
+		}
+
 		const actions = {
-			'create-session': () => this.createSessionWithFiles(),
-			'generate-workdir': 'Generating workspace...',
-			'extract-audio': 'Extracting audio...', 
-			'run-diarization': 'Running diarization...',
-			'load-to-translate': 'Moving to Translate tab...'
+			'generate-workdir': () => this.generateWorkdir(),
+			'extract-audio': () => this.extractAudio(),
+			'run-diarization': () => this.runDiarization(),
+			'load-to-translate': () => this.loadToTranslate()
 		};
 
-		if (action === 'create-session') {
+		if (actions[action]) {
 			actions[action]();
-		} else if (actions[action]) {
-			this.showNotification(actions[action], 'info');
-			
-			// Switch tab if needed
-			if (action === 'load-to-translate') {
-				setTimeout(() => {
-					this.loadTab('translate');
-				}, 1000);
-			}
 		}
+	}
+
+	async generateWorkdir() {
+		try {
+			this.showLoading('Generating workspace...');
+			const response = await fetch(`/api/session/${this.currentSessionId}/generate-workdir`, {
+				method: 'POST'
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				this.showNotification('Workspace generated successfully', 'success');
+				this.updateProgress(20, 'Workspace ready');
+			} else {
+				throw new Error('Failed to generate workdir');
+			}
+		} catch (error) {
+			this.showNotification(`Error: ${error.message}`, 'error');
+		} finally {
+			this.hideLoading();
+		}
+	}
+
+	async extractAudio() {
+		try {
+			this.showLoading('Extracting audio...');
+			const response = await fetch(`/api/session/${this.currentSessionId}/extract-audio`, {
+				method: 'POST'
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				this.showNotification('Audio extracted successfully', 'success');
+				this.updateProgress(40, 'Audio extracted');
+			} else {
+				throw new Error('Failed to extract audio');
+			}
+		} catch (error) {
+			this.showNotification(`Error: ${error.message}`, 'error');
+		} finally {
+			this.hideLoading();
+		}
+	}
+
+	async runDiarization() {
+		try {
+			// Get config from form
+			const config = {
+				male_ref: document.getElementById('male-ref').value,
+				female_ref: document.getElementById('female-ref').value,
+				hf_token: document.getElementById('hf-token').value,
+				use_gpu: document.getElementById('use-gpu').checked,
+				top_n: parseInt(document.getElementById('top-n').value)
+			};
+
+			this.showLoading('Running diarization...');
+			
+			const formData = new FormData();
+			formData.append('male_ref', config.male_ref);
+			formData.append('female_ref', config.female_ref);
+			formData.append('hf_token', config.hf_token);
+			formData.append('use_gpu', config.use_gpu);
+			formData.append('top_n', config.top_n.toString());
+
+			const response = await fetch(`/api/session/${this.currentSessionId}/diarization`, {
+				method: 'POST',
+				body: formData
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				this.showNotification('Diarization completed successfully', 'success');
+				this.updateProgress(70, 'Diarization complete');
+			} else {
+				throw new Error('Failed to run diarization');
+			}
+		} catch (error) {
+			this.showNotification(`Error: ${error.message}`, 'error');
+		} finally {
+			this.hideLoading();
+		}
+	}
+
+	loadToTranslate() {
+		this.showNotification('Loading to Translate tab...', 'info');
+		setTimeout(() => {
+			this.loadTab('translate');
+		}, 1000);
 	}
 
 	async createSessionWithFiles() {
