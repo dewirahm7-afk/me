@@ -1,4 +1,4 @@
-# backend/main.py (FIXED ROUTING)
+# backend/main.py
 import os
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -13,6 +13,9 @@ from core.session_manager import session_manager
 from core.processor import processing_manager
 from api.websockets import websocket_manager
 
+# 🔥 IMPORT ROUTER
+from api.endpoints import router as api_router
+
 app = FastAPI(title="DracinDub Web", version="2.0")
 
 # CORS middleware
@@ -23,6 +26,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 🔥 INCLUDE API ROUTER
+app.include_router(api_router)
 
 # Get the correct base directory
 BASE_DIR = Path(__file__).parent
@@ -74,112 +80,6 @@ async def health_check():
         "frontend_path": str(FRONTEND_DIR),
         "backend": "running"
     })
-
-# Simple test endpoint
-@app.get("/api/test")
-async def test_endpoint():
-    return JSONResponse({
-        "message": "API is working!", 
-        "status": "success",
-        "endpoints": {
-            "health": "/health",
-            "sessions": "/api/sessions",
-            "test": "/api/test"
-        }
-    })
-
-# Sessions endpoint
-@app.get("/api/sessions")
-async def list_sessions():
-    try:
-        sessions = processing_manager.list_sessions()
-        return JSONResponse({
-            "sessions": sessions,
-            "count": len(sessions),
-            "status": "success"
-        })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Session creation endpoint
-@app.post("/api/session/create")
-async def create_session():
-    try:
-        session_data = {
-            'video_name': 'test_video.mp4',
-            'srt_name': 'test_subtitles.srt'
-        }
-        session_id = await processing_manager.create_session(session_data)
-        return JSONResponse({
-            "session_id": session_id, 
-            "status": "created",
-            "message": "Session created successfully"
-        })
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-# Get session by ID
-@app.get("/api/session/{session_id}")
-async def get_session(session_id: str):
-    try:
-        session = processing_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        serialized_session = processing_manager._serialize_session(session)
-        return JSONResponse({
-            "session": serialized_session,
-            "status": "success"
-        })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Editing data endpoint
-@app.get("/api/session/{session_id}/editing-data")
-async def get_editing_data(session_id: str):
-    try:
-        session = processing_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Mock data for testing
-        mock_data = {
-            'entries': [
-                {
-                    'index': 1,
-                    'start': 0.0,
-                    'end': 5.0,
-                    'text': 'Hello, this is a test subtitle.',
-                    'speaker': 'Speaker1',
-                    'gender': 'Male',
-                    'duration': 5.0
-                },
-                {
-                    'index': 2,
-                    'start': 5.0,
-                    'end': 10.0,
-                    'text': 'This is another test subtitle for demonstration.',
-                    'speaker': 'Speaker2',
-                    'gender': 'Female',
-                    'duration': 5.0
-                },
-                {
-                    'index': 3,
-                    'start': 10.0,
-                    'end': 15.0,
-                    'text': 'The quick brown fox jumps over the lazy dog.',
-                    'speaker': 'Speaker1',
-                    'gender': 'Male',
-                    'duration': 5.0
-                }
-            ],
-            'video_url': f"/api/session/{session_id}/video",
-            'status': 'success'
-        }
-        
-        return JSONResponse(mock_data)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # WebSocket endpoint
 @app.websocket("/ws/{client_id}")
