@@ -1,0 +1,295 @@
+<!-- frontend/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DracinDub Web - Auto Dubbing Studio</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        [data-tab].active {
+            background-color: #374151;
+            border-color: #3B82F6;
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700">
+        <div class="container mx-auto px-4 py-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-2xl font-bold text-blue-400">
+                        <i class="fas fa-dragon mr-2"></i>DracinDub Web
+                    </h1>
+                    <div class="text-sm text-gray-400">Auto Dubbing Studio v2.0</div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div id="session-info" class="text-sm text-gray-300">
+                        No active session
+                    </div>
+                    <div id="connection-status" class="flex items-center text-green-400">
+                        <i class="fas fa-circle text-xs mr-1"></i>
+                        <span class="text-sm">Connected</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-gray-800 border-b border-gray-700">
+        <div class="container mx-auto px-4">
+            <div class="flex space-x-1">
+                <button data-tab="srt-processing" class="tab-button px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 hover:border-gray-500 transition-colors flex items-center active">
+                    <i class="fas fa-file-alt mr-2"></i>
+                    SRT Processing
+                </button>
+                <button data-tab="translate" class="tab-button px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 hover:border-gray-500 transition-colors flex items-center">
+                    <i class="fas fa-language mr-2"></i>
+                    Translate
+                </button>
+                <button data-tab="editing" class="tab-button px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 hover:border-gray-500 transition-colors flex items-center">
+                    <i class="fas fa-edit mr-2"></i>
+                    Editing
+                </button>
+                <button data-tab="tts-export" class="tab-button px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 hover:border-gray-500 transition-colors flex items-center">
+                    <i class="fas fa-file-export mr-2"></i>
+                    TTS & Export
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Loading Indicator -->
+        <div id="global-loading" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-gray-800 rounded-lg p-6 max-w-sm w-full mx-4">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="loading-spinner"></div>
+                </div>
+                <div class="text-center">
+                    <div id="loading-message" class="text-lg font-semibold mb-2">Loading...</div>
+                    <div class="text-sm text-gray-400" id="loading-detail">Please wait</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SRT Processing Tab -->
+        <div id="srt-processing" class="tab-content active">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-2xl font-bold mb-6 text-blue-400">
+                    <i class="fas fa-file-alt mr-2"></i>SRT Processing
+                </h2>
+                <div class="text-center py-12">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <p class="text-gray-400">Loading SRT Processing tab...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Translate Tab -->
+        <div id="translate" class="tab-content hidden">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-2xl font-bold mb-6 text-green-400">
+                    <i class="fas fa-language mr-2"></i>Translate
+                </h2>
+                <div class="text-center py-12">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <p class="text-gray-400">Loading Translate tab...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Editing Tab -->
+        <div id="editing" class="tab-content hidden">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-2xl font-bold mb-6 text-yellow-400">
+                    <i class="fas fa-edit mr-2"></i>Editing
+                </h2>
+                <div class="text-center py-12">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <p class="text-gray-400">Loading Editing tab...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TTS Export Tab -->
+        <div id="tts-export" class="tab-content hidden">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-2xl font-bold mb-6 text-purple-400">
+                    <i class="fas fa-file-export mr-2"></i>TTS & Export
+                </h2>
+                <div class="text-center py-12">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <p class="text-gray-400">Loading TTS & Export tab...</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 border-t border-gray-700 mt-12">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center text-sm text-gray-400">
+                <div>
+                    © 2024 DracinDub Web. All rights reserved.
+                </div>
+                <div class="flex space-x-4">
+                    <button id="save-all" class="hover:text-blue-400 transition-colors">
+                        <i class="fas fa-save mr-1"></i>Save All
+                    </button>
+                    <button id="settings" class="hover:text-blue-400 transition-colors">
+                        <i class="fas fa-cog mr-1"></i>Settings
+                    </button>
+                    <button id="help" class="hover:text-blue-400 transition-colors">
+                        <i class="fas fa-question-circle mr-1"></i>Help
+                    </button>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Notification Container -->
+    <div id="notification-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+    <!-- Simple JavaScript for basic functionality -->
+    <script>
+        // Basic tab functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            // Tab switching
+            document.querySelectorAll('[data-tab]').forEach(tab => {
+                tab.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const tabName = this.getAttribute('data-tab');
+                    
+                    // Update active tab
+                    document.querySelectorAll('[data-tab]').forEach(t => {
+                        t.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                    
+                    // Show active content
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.add('hidden');
+                    });
+                    document.getElementById(tabName).classList.remove('hidden');
+                    
+                    // Show loading for now
+                    showLoading('Loading ' + tabName + '...');
+                    setTimeout(hideLoading, 1000);
+                });
+            });
+            
+            // Footer buttons
+            document.getElementById('save-all').addEventListener('click', function() {
+                showNotification('Save functionality will be implemented', 'info');
+            });
+            
+            document.getElementById('settings').addEventListener('click', function() {
+                showNotification('Settings will be available soon', 'info');
+            });
+            
+            document.getElementById('help').addEventListener('click', function() {
+                showNotification('Help documentation coming soon', 'info');
+            });
+            
+            // Check backend health
+            checkBackendHealth();
+        });
+        
+        function showLoading(message = 'Loading...') {
+            const loading = document.getElementById('global-loading');
+            const messageEl = document.getElementById('loading-message');
+            if (loading && messageEl) {
+                messageEl.textContent = message;
+                loading.classList.remove('hidden');
+            }
+        }
+        
+        function hideLoading() {
+            const loading = document.getElementById('global-loading');
+            if (loading) {
+                loading.classList.add('hidden');
+            }
+        }
+        
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notification-container');
+            if (!container) return;
+            
+            const notification = document.createElement('div');
+            const bgColor = type === 'error' ? 'bg-red-500' : 
+                           type === 'success' ? 'bg-green-500' : 
+                           type === 'warning' ? 'bg-yellow-500' : 'bg-blue-500';
+            
+            notification.className = `${bgColor} text-white p-4 rounded-lg shadow-lg max-w-sm`;
+            notification.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+            
+            container.appendChild(notification);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+        
+        async function checkBackendHealth() {
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Backend health:', data);
+                    showNotification('Backend connected successfully', 'success');
+                } else {
+                    showNotification('Backend connection failed', 'error');
+                }
+            } catch (error) {
+                console.error('Health check failed:', error);
+                showNotification('Cannot connect to backend', 'error');
+            }
+        }
+        
+        // Make functions globally available
+        window.showLoading = showLoading;
+        window.hideLoading = hideLoading;
+        window.showNotification = showNotification;
+    </script>
+	<script src="/static/js/app.js"></script>
+</body>
+</html>
