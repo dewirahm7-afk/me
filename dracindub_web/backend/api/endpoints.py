@@ -87,17 +87,22 @@ async def run_diarization(
     pm = Depends(get_processing_manager)
 ):
     try:
-        config = {
-            'male_ref': male_ref,
-            'female_ref': female_ref,
-            'hf_token': hf_token,
-            'use_gpu': use_gpu,
-            'top_n': top_n
-        }
-        await pm.run_diarization(session_id, config)
-        return JSONResponse({"status": "diarization_started"})
+        result = await pm.run_diarization(session_id, {
+            "male_ref": male_ref,
+            "female_ref": female_ref,
+            "hf_token": hf_token,
+            "use_gpu": use_gpu,
+            "top_n": top_n
+        })
+        segments_path, speakers_path = result["segments_path"], result["speakers_path"]
+        return JSONResponse({
+            "status": "diarization_completed",
+            "segments_path": str(segments_path),
+            "speakers_path": str(speakers_path)
+        })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.post("/api/session/{session_id}/translate")
 async def run_translation(
