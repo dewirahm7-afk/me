@@ -1,17 +1,17 @@
-// frontend/js/app.js - VERSION LENGKAP
+// frontend/js/app.js - VERSION LENGKAP dengan Tab 2 Translate
 class DracinApp {
-	constructor() {
-		this.currentSessionId = null;
-		this.isConnected = false;
-		this.baseUrl = '';
-		this.activeTab = 'srt-processing';
-		
-		// Add these lines
-		this.videoFile = null;
-		this.srtFile = null;
-		
-		this.initializeApp();
-	}
+    constructor() {
+        this.currentSessionId = null;
+        this.isConnected = false;
+        this.baseUrl = '';
+        this.activeTab = 'srt-processing';
+        
+        // Add these lines
+        this.videoFile = null;
+        this.srtFile = null;
+        
+        this.initializeApp();
+    }
 
     initializeApp() {
         console.log('Initializing DracinDub Web App...');
@@ -104,87 +104,83 @@ class DracinApp {
         });
     }
 
-    async loadTab(tabName) {
-        console.log('Loading tab:', tabName);
-        
-        // Update active tab UI
-        document.querySelectorAll('[data-tab]').forEach(tab => {
-            tab.classList.remove('active', 'border-blue-400', 'bg-gray-700');
-            tab.classList.add('border-transparent');
-        });
-        
-        const activeTab = document.querySelector(`[data-tab="${tabName}"]`);
-        if (activeTab) {
-            activeTab.classList.add('active', 'border-blue-400', 'bg-gray-700');
-            activeTab.classList.remove('border-transparent');
-        }
+	async loadTab(tabName) {
+	  console.log('Loading tab:', tabName);
 
-        // Hide all tab contents
-        document.querySelectorAll('.tab-content').forEach(content => {
-            content.classList.add('hidden');
-        });
+	  // Toggle state di tombol tab
+	  document.querySelectorAll('[data-tab]').forEach(tab => {
+		tab.classList.remove('active', 'border-blue-400', 'bg-gray-700');
+		tab.classList.add('border-transparent');
+	  });
+	  const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+	  if (activeBtn) {
+		activeBtn.classList.add('active', 'border-blue-400', 'bg-gray-700');
+		activeBtn.classList.remove('border-transparent');
+	  }
 
-        // Show selected tab content
-        const tabContent = document.getElementById(tabName);
-        if (tabContent) {
-            tabContent.classList.remove('hidden');
-        }
+	  // TUTUP semua konten tab (hapus .active)
+	  document.querySelectorAll('.tab-content').forEach(el => {
+		el.classList.remove('active');
+	  });
 
-        this.activeTab = tabName;
+	  // BUKA konten tab yang dipilih (tambah .active)
+	  const tabContent = document.getElementById(tabName);
+	  if (tabContent) {
+		tabContent.classList.add('active');
+	  }
 
-        // Load tab-specific content
-        await this.loadTabContent(tabName);
-    }
+	  this.activeTab = tabName;
 
-    async loadTabContent(tabName) {
-        this.showLoading(`Loading ${tabName.replace('-', ' ')}...`);
-        
-        try {
-            switch(tabName) {
-                case 'srt-processing':
-                    await this.loadSRTProcessingTab();
-                    break;
-                case 'translate':
-                    await this.loadTranslateTab();
-                    break;
-                case 'editing':
-                    await this.loadEditingTab();
-                    break;
-                case 'tts-export':
-                    await this.loadTTSExportTab();
-                    break;
-            }
-        } catch (error) {
-            console.error(`Error loading tab ${tabName}:`, error);
-            this.showNotification(`Error loading ${tabName}: ${error.message}`, 'error');
-        } finally {
-            this.hideLoading();
-        }
-    }
+	  // Muat konten spesifik tab
+	  await this.loadTabContent(tabName);
+	}
 
-    async loadSRTProcessingTab() {
-        console.log('Loading SRT Processing tab...');
-        const tabContent = document.getElementById('srt-processing');
-        if (!tabContent) return;
 
-        // Clear existing content and show loading
-        tabContent.innerHTML = `
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-2xl font-bold mb-6 text-blue-400">
-                    <i class="fas fa-file-alt mr-2"></i>SRT Processing
-                </h2>
-                <div class="text-center py-8">
-                    <div class="loading-spinner mx-auto mb-4"></div>
-                    <p class="text-gray-400">Loading SRT Processing interface...</p>
-                </div>
-            </div>
-        `;
+	async loadTabContent(tabName) {
+		this.showLoading(`Loading ${tabName.replace('-', ' ')}...`);
+		
+		try {
+			switch(tabName) {
+				case 'srt-processing':
+					await this.loadSRTProcessingTab();
+					break;
+				case 'translate':
+					await this.loadTranslateTab();  // Pastikan ini yang dipanggil
+					break;
+				case 'editing':
+					await this.loadEditingTab();
+					break;
+				case 'tts-export':
+					await this.loadTTSExportTab();
+					break;
+			}
+		} catch (error) {
+			console.error(`Error loading tab ${tabName}:`, error);
+			this.showNotification(`Error loading ${tabName}: ${error.message}`, 'error');
+		} finally {
+			this.hideLoading();
+		}
+	}
 
-        // Simulate loading delay
-        setTimeout(() => {
-            this.renderSRTProcessingTab();
-        }, 500);
-    }
+	async loadSRTProcessingTab() {
+	  const tab = document.getElementById('srt-processing');
+	  if (!tab) return;
+	  tab.innerHTML = `
+		<!-- spinner singkat boleh, tapi langsung render saja juga boleh -->
+		<div class="bg-gray-800 rounded-lg p-6">
+		  <h2 class="text-2xl font-bold mb-6 text-blue-400">
+			<i class="fas fa-file-alt mr-2"></i>SRT Processing
+		  </h2>
+		  <div class="text-center py-8">
+			<div class="loading-spinner mx-auto mb-4"></div>
+			<p class="text-gray-400">Loading SRT Processing interface...</p>
+		  </div>
+		</div>
+	  `;
+	  // langsung render UI + bind
+	  this.renderSRTProcessingTab();
+	}
+
 
     renderSRTProcessingTab() {
         const tabContent = document.getElementById('srt-processing');
@@ -338,577 +334,864 @@ class DracinApp {
         this.setupSRTProcessingEvents();
     }
 
-	setupSRTProcessingEvents() {
-		console.log('Setting up SRT Processing events...');
-		
-		// Create test session button
-		const createTestBtn = document.getElementById('create-test-session');
-		if (createTestBtn) {
-			createTestBtn.addEventListener('click', () => {
-				this.createTestSession();
-			});
-		}
+    setupSRTProcessingEvents() {
+        console.log('Setting up SRT Processing events...');
+        
+        // Create test session button
+        const createTestBtn = document.getElementById('create-test-session');
+        if (createTestBtn) {
+            createTestBtn.addEventListener('click', () => {
+                this.createTestSession();
+            });
+        }
 
-		// Create session button
-		const createSessionBtn = document.getElementById('create-session');
-		if (createSessionBtn) {
-		  createSessionBtn.addEventListener('click', () => {
-			this.createSessionWithFiles();
-		  });
-		}
+        // Create session button
+        const createSessionBtn = document.getElementById('create-session');
+        if (createSessionBtn) {
+          createSessionBtn.addEventListener('click', () => {
+            this.createSessionWithFiles();
+          });
+        }
 
-		// Other action buttons
-		const actionButtons = ['generate-workdir', 'extract-audio', 'run-diarization', 'load-to-translate'];
-		actionButtons.forEach(btnId => {
-			const btn = document.getElementById(btnId);
-			if (btn) {
-				btn.addEventListener('click', () => {
-					this.handleSRTAction(btnId);
-				});
-			}
-		});
+        // Other action buttons
+        const actionButtons = ['generate-workdir', 'extract-audio', 'run-diarization', 'load-to-translate'];
+        actionButtons.forEach(btnId => {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    this.handleSRTAction(btnId);
+                });
+            }
+        });
 
-		// File drop zones - FIXED VERSION
-		this.setupFileDropZones();
-	}
-
-	setupFileDropZones() {
-		// Create hidden file inputs
-		this.createFileInput('video', ['video/*', '.mp4', '.mkv', '.avi', '.mov']);
-		this.createFileInput('srt', ['.srt', '.txt']);
-		
-		// Video drop zone
-		const videoDropZone = document.getElementById('video-drop-zone');
-		if (videoDropZone) {
-			// Click handler
-			videoDropZone.addEventListener('click', () => {
-				document.getElementById('video-file-input').click();
-			});
-			
-			// Drag and drop handlers
-			this.setupDragAndDrop(videoDropZone, 'video');
-		}
-
-		// SRT drop zone  
-		const srtDropZone = document.getElementById('srt-drop-zone');
-		if (srtDropZone) {
-			// Click handler
-			srtDropZone.addEventListener('click', () => {
-				document.getElementById('srt-file-input').click();
-			});
-			
-			// Drag and drop handlers
-			this.setupDragAndDrop(srtDropZone, 'srt');
-		}
-	}
-
-	createFileInput(type, accept) {
-		// Remove existing input if any
-		const existingInput = document.getElementById(`${type}-file-input`);
-		if (existingInput) {
-			existingInput.remove();
-		}
-		
-		// Create new file input
-		const fileInput = document.createElement('input');
-		fileInput.type = 'file';
-		fileInput.id = `${type}-file-input`;
-		fileInput.accept = accept.join(',');
-		fileInput.style.display = 'none';
-		
-		fileInput.addEventListener('change', (e) => {
-			this.handleFileSelect(e, type);
-		});
-		
-		document.body.appendChild(fileInput);
-	}
-
-	setupDragAndDrop(dropZone, type) {
-		// Drag over effect
-		dropZone.addEventListener('dragover', (e) => {
-			e.preventDefault();
-			dropZone.classList.add('border-blue-400', 'bg-gray-600');
-		});
-
-		// Drag leave effect
-		dropZone.addEventListener('dragleave', () => {
-			dropZone.classList.remove('border-blue-400', 'bg-gray-600');
-		});
-
-		// Drop handler
-		dropZone.addEventListener('drop', (e) => {
-			e.preventDefault();
-			dropZone.classList.remove('border-blue-400', 'bg-gray-600');
-			
-			const files = e.dataTransfer.files;
-			if (files.length > 0) {
-				this.handleDroppedFile(files[0], type);
-			}
-		});
-	}
-
-	handleFileSelect(event, type) {
-		const file = event.target.files[0];
-		if (file) {
-			this.handleDroppedFile(file, type);
-		}
-	}
-
-	handleDroppedFile(file, type) {
-		const fileInfo = document.getElementById(`${type}-file-info`);
-		const fileName = file.name;
-		const fileSize = (file.size / (1024 * 1024)).toFixed(2);
-
-		// Validate file type
-		if (type === 'video' && !file.type.startsWith('video/') && !fileName.match(/\.(mp4|mkv|avi|mov)$/i)) {
-			this.showNotification('Please select a valid video file (MP4, MKV, AVI, MOV)', 'error');
-			return;
-		}
-		
-		if (type === 'srt' && !fileName.match(/\.(srt|txt)$/i)) {
-			this.showNotification('Please select a valid SRT file (.srt)', 'error');
-			return;
-		}
-
-		// Update UI
-		fileInfo.innerHTML = `
-			<div class="text-green-400">
-				<i class="fas fa-check-circle mr-1"></i>
-				${fileName} (${fileSize} MB)
-			</div>
-		`;
-		fileInfo.classList.remove('hidden');
-
-		// Store file reference
-		if (type === 'video') {
-			this.videoFile = file;
-		} else {
-			this.srtFile = file;
-		}
-
-		this.showNotification(`${type.toUpperCase()} file selected: ${fileName}`, 'success');
-		this.updateButtonStates();
-	}
-
-	updateButtonStates() {
-		const hasFiles = this.videoFile && this.srtFile;
-		const createSessionBtn = document.getElementById('create-session');
-		
-		if (createSessionBtn) {
-			createSessionBtn.disabled = !hasFiles;
-			if (hasFiles) {
-				createSessionBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-			} else {
-				createSessionBtn.classList.add('opacity-50', 'cursor-not-allowed');
-			}
-		}
-	}
-
-	handleSRTAction(action) {
-		console.log(`🔄 SRT Action: ${action}`);
-		
-		if (!this.currentSessionId) {
-			this.showNotification('Please create a session first', 'error');
-			return;
-		}
-
-		const actions = {
-			'generate-workdir': () => this.generateWorkdir(),
-			'extract-audio': () => this.extractAudio(),
-			'run-diarization': () => this.runDiarization(),
-			'load-to-translate': () => this.loadToTranslate()
-		};
-
-		if (actions[action]) {
-			actions[action]();
-		}
-	}
-
-	async generateWorkdir() {
-		try {
-			this.showLoading('Generating workspace...');
-			const response = await fetch(`/api/session/${this.currentSessionId}/generate-workdir`, {
-				method: 'POST'
-			});
-			
-			if (response.ok) {
-				const data = await response.json();
-				this.showNotification('Workspace generated successfully', 'success');
-				this.updateProgress(20, 'Workspace ready');
-			} else {
-				throw new Error('Failed to generate workdir');
-			}
-		} catch (error) {
-			this.showNotification(`Error: ${error.message}`, 'error');
-		} finally {
-			this.hideLoading();
-		}
-	}
-
-	async extractAudio() {
-		try {
-			this.showLoading('Extracting audio...');
-			const response = await fetch(`/api/session/${this.currentSessionId}/extract-audio`, {
-				method: 'POST'
-			});
-			
-			if (response.ok) {
-				const data = await response.json();
-				this.showNotification('Audio extracted successfully', 'success');
-				this.updateProgress(40, 'Audio extracted');
-			} else {
-				throw new Error('Failed to extract audio');
-			}
-		} catch (error) {
-			this.showNotification(`Error: ${error.message}`, 'error');
-		} finally {
-			this.hideLoading();
-		}
-	}
-
-	// Tab 1 – Diarization
-	async runDiarization() {
-	  // pastikan sudah ada session
-	  if (!this.currentSessionId) {
-		this.showNotification('Create Session dulu.', 'error');
-		return;
-	  }
-
-	  // ambil input dari UI
-	  const maleRefEl    = document.getElementById('male-ref');
-	  const femaleRefEl  = document.getElementById('female-ref');
-	  const hfTokenEl    = document.getElementById('hf-token');
-	  const useGpuEl     = document.getElementById('use-gpu');
-	  const topNEl       = document.getElementById('top-n');
-
-	  const male_ref     = (maleRefEl?.value || '').trim();
-	  const female_ref   = (femaleRefEl?.value || '').trim();
-	  const hf_token     = (hfTokenEl?.value || '').trim();
-	  const use_gpu      = useGpuEl?.checked ? 'true' : 'false';
-	  const top_n        = topNEl?.value ? parseInt(topNEl.value, 10) : 5;
-
-	  if (!male_ref || !female_ref) {
-		this.showNotification('Male/Female Reference wajib diisi.', 'error');
-		return;
-	  }
-
-	  const url = `/api/session/${this.currentSessionId}/diarization`;
-	  const body = new URLSearchParams({
-		male_ref,
-		female_ref,
-		hf_token,
-		use_gpu,
-		top_n: String(top_n),
-	  });
-
-	  try {
-		this.appendLog?.('Running diarization...');
-		this.showLoading('Running diarization...');
-
-		const res = await fetch(url, {
-		  method: 'POST',
-		  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		  body,
-		});
-
-		const text = await res.text(); // ambil body apa adanya dulu
-
-		if (!res.ok) {
-		  // tampilkan pesan error asli dari backend biar gampang debug
-		  this.showNotification(`Failed to run diarization: ${text}`, 'error');
-		  this.appendLog?.(text);
-		  return;
-		}
-
-		// coba parse JSON respon
-		let data = {};
-		try { data = JSON.parse(text); } catch (_) {}
-
-		const segPath = data.segments_path || data.segjson || '';
-		const spkPath = data.speakers_path || data.spkjson || '';
-
-		if (segPath) this.appendLog?.(`Segments: ${segPath}`);
-		if (spkPath) this.appendLog?.(`Speakers: ${spkPath}`);
-
-		this.updateProgress?.(70, 'Diarization done');
-		this.showNotification('Diarization completed successfully', 'success');
-	  } catch (err) {
-		this.showNotification(`Failed to run diarization: ${err?.message || err}`, 'error');
-	  } finally {
-		this.hideLoading();
-	  }
-	}
-
-	updateProgress(percent, message) {
-	  const bar   = document.getElementById('progress-bar');
-	  const pctEl = document.getElementById('progress-percent');
-	  const step  = document.getElementById('current-step');
-
-	  if (bar)   bar.style.width = `${Number(percent)||0}%`;
-	  if (pctEl) pctEl.textContent = `${Number(percent)||0}%`;
-	  if (step)  step.textContent = message || '';
-	}
-
-	loadToTranslate() {
-		this.showNotification('Loading to Translate tab...', 'info');
-		setTimeout(() => {
-			this.loadTab('translate');
-		}, 1000);
-	}
-
-	async createSessionWithFiles() {
-		if (!this.videoFile || !this.srtFile) {
-			this.showNotification('Please select both video and SRT files first', 'error');
-			return;
-		}
-
-		this.showLoading('Creating session and uploading files...');
-
-		try {
-			// First create session
-			const sessionResponse = await fetch('/api/session/create', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/x-www-form-urlencoded',
-				},
-				body: `video_name=${encodeURIComponent(this.videoFile.name)}&srt_name=${encodeURIComponent(this.srtFile.name)}`
-			});
-
-			if (!sessionResponse.ok) {
-				throw new Error('Failed to create session');
-			}
-
-			const sessionData = await sessionResponse.json();
-			this.currentSessionId = sessionData.session_id;
-			
-			// Then upload files
-			const formData = new FormData();
-			formData.append('video', this.videoFile);
-			formData.append('srt', this.srtFile);
-
-			const uploadResponse = await fetch(`/api/session/${this.currentSessionId}/upload`, {
-				method: 'POST',
-				body: formData
-			});
-
-			if (!uploadResponse.ok) {
-				throw new Error('Failed to upload files');
-			}
-
-			this.showNotification('Session created and files uploaded successfully!', 'success');
-			this.updateSessionInfo(this.currentSessionId);
-			
-			// Simulate progress
-			this.simulateProgress();
-
-		} catch (error) {
-			console.error('Error creating session:', error);
-			this.showNotification(`Error: ${error.message}`, 'error');
-		} finally {
-			this.hideLoading();
-		}
-	}
-
-	simulateProgress() {
-		let progress = 0;
-		const progressBar = document.getElementById('progress-bar');
-		const progressPercent = document.getElementById('progress-percent');
-		const currentStep = document.getElementById('current-step');
-		
-		const steps = [
-			'Creating session...',
-			'Uploading files...', 
-			'Processing files...',
-			'Ready for next steps'
-		];
-		
-		const interval = setInterval(() => {
-			progress += 25;
-			
-			if (progressBar) progressBar.style.width = `${progress}%`;
-			if (progressPercent) progressPercent.textContent = `${progress}%`;
-			if (currentStep) {
-				currentStep.textContent = steps[Math.min(Math.floor(progress / 25), steps.length - 1)];
-			}
-			
-			if (progress >= 100) {
-				clearInterval(interval);
-				this.showNotification('Files processed successfully!', 'success');
-				
-				// Enable other buttons
-				const buttons = ['generate-workdir', 'extract-audio', 'run-diarization', 'load-to-translate'];
-				buttons.forEach(btnId => {
-					const btn = document.getElementById(btnId);
-					if (btn) {
-						btn.disabled = false;
-						btn.classList.remove('opacity-50', 'cursor-not-allowed');
-					}
-				});
-			}
-		}, 800);
-	}
-
-    async loadTranslateTab() {
-        console.log('Loading Translate tab...');
-        const tabContent = document.getElementById('translate');
-        if (!tabContent) return;
-
-        // Clear and show loading
-        tabContent.innerHTML = `
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-2xl font-bold mb-6 text-green-400">
-                    <i class="fas fa-language mr-2"></i>Translate
-                </h2>
-                <div class="text-center py-8">
-                    <div class="loading-spinner mx-auto mb-4"></div>
-                    <p class="text-gray-400">Loading Translation interface...</p>
-                </div>
-            </div>
-        `;
-
-        setTimeout(() => {
-            this.renderTranslateTab();
-        }, 500);
+        // File drop zones - FIXED VERSION
+        this.setupFileDropZones();
     }
 
-    renderTranslateTab() {
-        const tabContent = document.getElementById('translate');
-        if (!tabContent) return;
+    setupFileDropZones() {
+        // Create hidden file inputs
+        this.createFileInput('video', ['video/*', '.mp4', '.mkv', '.avi', '.mov']);
+        this.createFileInput('srt', ['.srt', '.txt']);
+        
+        // Video drop zone
+        const videoDropZone = document.getElementById('video-drop-zone');
+        if (videoDropZone) {
+            // Click handler
+            videoDropZone.addEventListener('click', () => {
+                document.getElementById('video-file-input').click();
+            });
+            
+            // Drag and drop handlers
+            this.setupDragAndDrop(videoDropZone, 'video');
+        }
 
-        tabContent.innerHTML = `
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-2xl font-bold mb-6 text-green-400">
-                    <i class="fas fa-language mr-2"></i>Translate
-                </h2>
+        // SRT drop zone  
+        const srtDropZone = document.getElementById('srt-drop-zone');
+        if (srtDropZone) {
+            // Click handler
+            srtDropZone.addEventListener('click', () => {
+                document.getElementById('srt-file-input').click();
+            });
+            
+            // Drag and drop handlers
+            this.setupDragAndDrop(srtDropZone, 'srt');
+        }
+    }
 
-                <!-- Translation Controls -->
-                <div class="bg-gray-700 rounded-lg p-4 mb-6">
-                    <h3 class="text-lg font-semibold mb-4 text-white">Translation Controls</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-2 text-gray-300">DeepSeek API Key</label>
-                            <input type="password" placeholder="Enter API key" 
-                                   class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white placeholder-gray-400">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-2 text-gray-300">Batch Size</label>
-                            <input type="number" value="20" 
-                                   class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-2 text-gray-300">Workers</label>
-                            <input type="number" value="1" 
-                                   class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-2 text-gray-300">Timeout (s)</label>
-                            <input type="number" value="90" 
-                                   class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white">
-                        </div>
-                    </div>
-                    <div class="flex flex-wrap gap-3">
-                        <button class="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded flex items-center transition-colors">
-                            <i class="fas fa-folder-open mr-2"></i>Load SRT
-                        </button>
-                        <button class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded flex items-center transition-colors">
-                            <i class="fas fa-play mr-2"></i>Start Translate
-                        </button>
-                        <button class="bg-yellow-500 hover:bg-yellow-600 px-4 py-2 rounded flex items-center transition-colors">
-                            <i class="fas fa-redo mr-2"></i>Resume
-                        </button>
-                        <button class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded flex items-center transition-colors">
-                            <i class="fas fa-stop mr-2"></i>Stop
-                        </button>
-                        <button class="bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded flex items-center transition-colors">
-                            <i class="fas fa-search mr-2"></i>Fill Missing
-                        </button>
-                    </div>
-                </div>
+    createFileInput(type, accept) {
+        // Remove existing input if any
+        const existingInput = document.getElementById(`${type}-file-input`);
+        if (existingInput) {
+            existingInput.remove();
+        }
+        
+        // Create new file input
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.id = `${type}-file-input`;
+        fileInput.accept = accept.join(',');
+        fileInput.style.display = 'none';
+        
+        fileInput.addEventListener('change', (e) => {
+            this.handleFileSelect(e, type);
+        });
+        
+        document.body.appendChild(fileInput);
+    }
 
-                <!-- Progress Section -->
-                <div class="bg-gray-700 rounded-lg p-4 mb-6">
-                    <h3 class="text-lg font-semibold mb-3 text-white">Translation Progress</h3>
-                    <div class="space-y-4">
-                        <div>
-                            <div class="flex justify-between mb-2">
-                                <span class="text-sm text-gray-300">Ready</span>
-                                <span class="text-sm text-gray-300">0%</span>
-                            </div>
-                            <div class="w-full bg-gray-600 rounded-full h-3">
-                                <div class="bg-green-500 h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-3 gap-4 text-sm">
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-green-400">0</div>
-                                <div class="text-gray-400">Translated</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-yellow-400">0</div>
-                                <div class="text-gray-400">Missing</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-blue-400">0</div>
-                                <div class="text-gray-400">Total</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+    setupDragAndDrop(dropZone, type) {
+        // Drag over effect
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-blue-400', 'bg-gray-600');
+        });
 
-                <!-- Translation Cards Preview -->
-                <div class="bg-gray-700 rounded-lg p-4">
-                    <h3 class="text-lg font-semibold mb-3 text-white">Translation Preview</h3>
-                    <div class="space-y-3">
-                        <div class="bg-gray-600 rounded p-4 border-l-4 border-blue-500">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-center space-x-4">
-                                    <span class="font-bold text-blue-300">#1</span>
-                                    <span class="text-sm text-gray-300">00:00:01,000 --> 00:00:03,000</span>
-                                </div>
-                            </div>
-                            <div class="mb-2">
-                                <div class="text-sm text-gray-400 mb-1">Original:</div>
-                                <div class="text-white font-medium">Hello world, this is a test subtitle.</div>
-                            </div>
-                            <div>
-                                <div class="text-sm text-gray-400 mb-1">Translation:</div>
-                                <div class="text-green-300 font-medium">Halo dunia, ini adalah tes subtitle.</div>
-                            </div>
-                        </div>
-                        
-                        <div class="bg-gray-600 rounded p-4 border-l-4 border-yellow-500">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-center space-x-4">
-                                    <span class="font-bold text-blue-300">#2</span>
-                                    <span class="text-sm text-gray-300">00:00:03,000 --> 00:00:05,000</span>
-                                </div>
-                            </div>
-                            <div class="mb-2">
-                                <div class="text-sm text-gray-400 mb-1">Original:</div>
-                                <div class="text-white font-medium">How are you doing today?</div>
-                            </div>
-                            <div>
-                                <div class="text-sm text-gray-400 mb-1">Translation:</div>
-                                <div class="text-yellow-300 font-medium">Not translated yet</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        // Drag leave effect
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-blue-400', 'bg-gray-600');
+        });
+
+        // Drop handler
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-400', 'bg-gray-600');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                this.handleDroppedFile(files[0], type);
+            }
+        });
+    }
+
+    handleFileSelect(event, type) {
+        const file = event.target.files[0];
+        if (file) {
+            this.handleDroppedFile(file, type);
+        }
+    }
+
+    handleDroppedFile(file, type) {
+        const fileInfo = document.getElementById(`${type}-file-info`);
+        const fileName = file.name;
+        const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+
+        // Validate file type
+        if (type === 'video' && !file.type.startsWith('video/') && !fileName.match(/\.(mp4|mkv|avi|mov)$/i)) {
+            this.showNotification('Please select a valid video file (MP4, MKV, AVI, MOV)', 'error');
+            return;
+        }
+        
+        if (type === 'srt' && !fileName.match(/\.(srt|txt)$/i)) {
+            this.showNotification('Please select a valid SRT file (.srt)', 'error');
+            return;
+        }
+
+        // Update UI
+        fileInfo.innerHTML = `
+            <div class="text-green-400">
+                <i class="fas fa-check-circle mr-1"></i>
+                ${fileName} (${fileSize} MB)
             </div>
         `;
+        fileInfo.classList.remove('hidden');
 
-        // Add event listeners for translate buttons
-        this.setupTranslateEvents();
+        // Store file reference
+        if (type === 'video') {
+            this.videoFile = file;
+        } else {
+            this.srtFile = file;
+        }
+
+        this.showNotification(`${type.toUpperCase()} file selected: ${fileName}`, 'success');
+        this.updateButtonStates();
+    }
+
+    updateButtonStates() {
+        const hasFiles = this.videoFile && this.srtFile;
+        const createSessionBtn = document.getElementById('create-session');
+        
+        if (createSessionBtn) {
+            createSessionBtn.disabled = !hasFiles;
+            if (hasFiles) {
+                createSessionBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                createSessionBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+    }
+
+    handleSRTAction(action) {
+        console.log(`🔄 SRT Action: ${action}`);
+        
+        if (!this.currentSessionId) {
+            this.showNotification('Please create a session first', 'error');
+            return;
+        }
+
+        const actions = {
+            'generate-workdir': () => this.generateWorkdir(),
+            'extract-audio': () => this.extractAudio(),
+            'run-diarization': () => this.runDiarization(),
+            'load-to-translate': () => this.loadToTranslate()
+        };
+
+        if (actions[action]) {
+            actions[action]();
+        }
+    }
+
+    async generateWorkdir() {
+        try {
+            this.showLoading('Generating workspace...');
+            const response = await fetch(`/api/session/${this.currentSessionId}/generate-workdir`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.showNotification('Workspace generated successfully', 'success');
+                this.updateProgress(20, 'Workspace ready');
+            } else {
+                throw new Error('Failed to generate workdir');
+            }
+        } catch (error) {
+            this.showNotification(`Error: ${error.message}`, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async extractAudio() {
+        try {
+            this.showLoading('Extracting audio...');
+            const response = await fetch(`/api/session/${this.currentSessionId}/extract-audio`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.showNotification('Audio extracted successfully', 'success');
+                this.updateProgress(40, 'Audio extracted');
+            } else {
+                throw new Error('Failed to extract audio');
+            }
+        } catch (error) {
+            this.showNotification(`Error: ${error.message}`, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    // Tab 1 – Diarization
+    async runDiarization() {
+      // pastikan sudah ada session
+      if (!this.currentSessionId) {
+        this.showNotification('Create Session dulu.', 'error');
+        return;
+      }
+
+      // ambil input dari UI
+      const maleRefEl    = document.getElementById('male-ref');
+      const femaleRefEl  = document.getElementById('female-ref');
+      const hfTokenEl    = document.getElementById('hf-token');
+      const useGpuEl     = document.getElementById('use-gpu');
+      const topNEl       = document.getElementById('top-n');
+
+      const male_ref     = (maleRefEl?.value || '').trim();
+      const female_ref   = (femaleRefEl?.value || '').trim();
+      const hf_token     = (hfTokenEl?.value || '').trim();
+      const use_gpu      = useGpuEl?.checked ? 'true' : 'false';
+      const top_n        = topNEl?.value ? parseInt(topNEl.value, 10) : 5;
+
+      if (!male_ref || !female_ref) {
+        this.showNotification('Male/Female Reference wajib diisi.', 'error');
+        return;
+      }
+
+      const url = `/api/session/${this.currentSessionId}/diarization`;
+      const body = new URLSearchParams({
+        male_ref,
+        female_ref,
+        hf_token,
+        use_gpu,
+        top_n: String(top_n),
+      });
+
+      try {
+        this.appendLog?.('Running diarization...');
+        this.showLoading('Running diarization...');
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+
+        const text = await res.text(); // ambil body apa adanya dulu
+
+        if (!res.ok) {
+          // tampilkan pesan error asli dari backend biar gampang debug
+          this.showNotification(`Failed to run diarization: ${text}`, 'error');
+          this.appendLog?.(text);
+          return;
+        }
+
+        // coba parse JSON respon
+        let data = {};
+        try { data = JSON.parse(text); } catch (_) {}
+
+        const segPath = data.segments_path || data.segjson || '';
+        const spkPath = data.speakers_path || data.spkjson || '';
+
+        if (segPath) this.appendLog?.(`Segments: ${segPath}`);
+        if (spkPath) this.appendLog?.(`Speakers: ${spkPath}`);
+
+        this.updateProgress?.(70, 'Diarization done');
+        this.showNotification('Diarization completed successfully', 'success');
+      } catch (err) {
+        this.showNotification(`Failed to run diarization: ${err?.message || err}`, 'error');
+      } finally {
+        this.hideLoading();
+      }
+    }
+
+    updateProgress(percent, message) {
+      const bar   = document.getElementById('progress-bar');
+      const pctEl = document.getElementById('progress-percent');
+      const step  = document.getElementById('current-step');
+
+      if (bar)   bar.style.width = `${Number(percent)||0}%`;
+      if (pctEl) pctEl.textContent = `${Number(percent)||0}%`;
+      if (step)  step.textContent = message || '';
+    }
+
+    loadToTranslate() {
+        this.showNotification('Loading to Translate tab...', 'info');
+        setTimeout(() => {
+            this.loadTab('translate');
+        }, 1000);
+    }
+
+    async createSessionWithFiles() {
+        if (!this.videoFile || !this.srtFile) {
+            this.showNotification('Please select both video and SRT files first', 'error');
+            return;
+        }
+
+        this.showLoading('Creating session and uploading files...');
+
+        try {
+            // First create session
+            const sessionResponse = await fetch('/api/session/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `video_name=${encodeURIComponent(this.videoFile.name)}&srt_name=${encodeURIComponent(this.srtFile.name)}`
+            });
+
+            if (!sessionResponse.ok) {
+                throw new Error('Failed to create session');
+            }
+
+            const sessionData = await sessionResponse.json();
+            this.currentSessionId = sessionData.session_id;
+            
+            // Then upload files
+            const formData = new FormData();
+            formData.append('video', this.videoFile);
+            formData.append('srt', this.srtFile);
+
+            const uploadResponse = await fetch(`/api/session/${this.currentSessionId}/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!uploadResponse.ok) {
+                throw new Error('Failed to upload files');
+            }
+
+            this.showNotification('Session created and files uploaded successfully!', 'success');
+            this.updateSessionInfo(this.currentSessionId);
+            
+            // Simulate progress
+            this.simulateProgress();
+
+        } catch (error) {
+            console.error('Error creating session:', error);
+            this.showNotification(`Error: ${error.message}`, 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    simulateProgress() {
+        let progress = 0;
+        const progressBar = document.getElementById('progress-bar');
+        const progressPercent = document.getElementById('progress-percent');
+        const currentStep = document.getElementById('current-step');
+        
+        const steps = [
+            'Creating session...',
+            'Uploading files...', 
+            'Processing files...',
+            'Ready for next steps'
+        ];
+        
+        const interval = setInterval(() => {
+            progress += 25;
+            
+            if (progressBar) progressBar.style.width = `${progress}%`;
+            if (progressPercent) progressPercent.textContent = `${progress}%`;
+            if (currentStep) {
+                currentStep.textContent = steps[Math.min(Math.floor(progress / 25), steps.length - 1)];
+            }
+            
+            if (progress >= 100) {
+                clearInterval(interval);
+                this.showNotification('Files processed successfully!', 'success');
+                
+                // Enable other buttons
+                const buttons = ['generate-workdir', 'extract-audio', 'run-diarization', 'load-to-translate'];
+                buttons.forEach(btnId => {
+                    const btn = document.getElementById(btnId);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+                });
+            }
+        }, 800);
+    }
+
+    // ============================
+    // TAB 2: TRANSLATE
+    // ============================
+
+    initTranslateState() {
+      this.translate = {
+        mode: "auto",            // "auto" | "manual"
+        srtText: "",             // SRT source (manual/auto)
+        subtitles: [],           // parsed SRT
+        filtered: [],            // setelah search
+        page: 1,
+        size: 100,
+        follow: true,
+        search: "",
+        // run config
+        apiKey: "",
+        lang: "id",
+        engine: "llm",
+        temperature: 0.3,
+        top_p: 0.9,
+        batch: 20,
+        workers: 1,
+        timeout: 120,
+        autosave: true,
+        // misc
+        abort: null,
+        running: false,
+        messages: []             // kanan: Messages(JSON)
+      };
+    }
+
+	async loadTranslateTab() {
+	  const tab = document.getElementById('translate');
+	  if (!tab) return;
+	  tab.innerHTML = `
+		<div class="bg-gray-800 rounded-lg p-6">
+		  <h2 class="text-2xl font-bold mb-6 text-green-400">
+			<i class="fas fa-language mr-2"></i>Translate
+		  </h2>
+		  <div class="text-center py-8">
+			<div class="loading-spinner mx-auto mb-4"></div>
+			<p class="text-gray-400">Loading Translation interface...</p>
+		  </div>
+		</div>
+	  `;
+	  // langsung render UI + bind
+	  this.renderTranslateTab();
+	}
+
+
+    renderTranslateTab() {
+      if (!this.translate) this.initTranslateState();
+      const st = this.translate;
+      
+      const tabContent = document.getElementById('translate');
+      if (!tabContent) return;
+
+      tabContent.innerHTML = `
+        <div class="bg-gray-800 rounded-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-green-400">
+            <i class="fas fa-language mr-2"></i>Translate
+          </h2>
+          
+          <div class="p-3 space-y-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <div class="flex items-center gap-2">
+                <span class="text-sm whitespace-nowrap text-gray-300">DeepSeek API Key</span>
+                <input id="ts-api" type="password" value="${st.apiKey || ''}"
+                       class="border border-gray-600 bg-gray-700 text-white rounded px-3 py-1 w-[360px]" placeholder="sk-..." />
+              </div>
+
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-300">Batch</span>
+                <input id="ts-batch" type="number" min="1" value="${st.batch}"
+                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
+              </div>
+
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-300">Workers</span>
+                <input id="ts-workers" type="number" min="1" value="${st.workers}"
+                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-14" />
+              </div>
+
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-300">Timeout</span>
+                <input id="ts-timeout" type="number" min="30" value="${st.timeout}"
+                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
+              </div>
+
+              <label class="inline-flex items-center gap-2">
+                <input id="ts-autosave" type="checkbox" ${st.autosave ? 'checked' : ''} class="w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
+                <span class="text-sm text-gray-300">Autosave</span>
+              </label>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="flex gap-2">
+                <button id="ts-load" class="btn btn-slate">📂 Load SRT</button>
+                <button id="ts-start" class="btn btn-primary">▶ Start Translate</button>
+                <button id="ts-resume" class="btn btn-slate">⏵ Resume</button>
+                <button id="ts-fill" class="btn btn-slate">✳ Fill Missing</button>
+                <button id="ts-save" class="btn btn-slate">💾 Save</button>
+                <button id="ts-export" class="btn btn-slate">⬇ Export As…</button>
+                <button id="ts-stop" class="btn btn-danger">■ Stop</button>
+                <button id="ts-next" class="btn btn-slate">➡ Next Tab</button>
+                <button id="ts-clear" class="btn btn-slate">🗑 Clear Cache</button>
+              </div>
+              <div class="ml-auto flex items-center gap-2">
+                <span class="text-sm text-gray-300">Lang</span>
+                <select id="ts-lang" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1">
+                  <option value="id" ${st.lang==='id'?'selected':''}>Indonesian (id)</option>
+                  <option value="en" ${st.lang==='en'?'selected':''}>English (en)</option>
+                </select>
+                <span class="text-sm text-gray-300">Engine</span>
+                <select id="ts-engine" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1">
+                  <option value="llm" ${st.engine==='llm'?'selected':''}>LLM (default)</option>
+                  <option value="nllb" ${st.engine==='nllb'?'selected':''}>NLLB</option>
+                  <option value="whisper" ${st.engine==='whisper'?'selected':''}>Whisper</option>
+                </select>
+                <span class="text-sm text-gray-300">Temp</span>
+                <input id="ts-temp" type="number" step="0.1" min="0" max="2" value="${st.temperature}"
+                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
+                <span class="text-sm text-gray-300">top-p</span>
+                <input id="ts-topp" type="number" step="0.05" min="0" max="1" value="${st.top_p}"
+                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <!-- left: subtitle viewer -->
+              <div class="space-y-2">
+                <div class="flex items-center gap-3">
+                  <div class="text-base font-semibold text-white">Subtitle Viewer</div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm text-gray-300">Cari:</span>
+                    <input id="ts-search" type="text" placeholder="..." class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-64" />
+                  </div>
+                  <div class="ml-auto flex items-center gap-2">
+                    <button id="ts-prev" class="btn btn-slate">‹ Prev</button>
+                    <button id="ts-nextpage" class="btn btn-slate">Next ›</button>
+                    <span class="text-sm text-gray-300">Page</span>
+                    <input id="ts-page" type="number" min="1" value="${st.page}" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
+                    <span class="text-sm text-gray-300">of <span id="ts-pages">1</span></span>
+                    <span class="text-sm text-gray-300">Size</span>
+                    <select id="ts-size" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1">
+                      ${[50,100,200,500].map(n=>`<option value="${n}" ${st.size===n?'selected':''}>${n}</option>`).join('')}
+                    </select>
+                    <label class="inline-flex items-center gap-2">
+                      <input id="ts-follow" type="checkbox" ${st.follow?'checked':''} class="w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
+                      <span class="text-sm text-gray-300">Follow</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div id="ts-table" class="border border-gray-600 rounded h-[54vh] overflow-auto bg-gray-900"></div>
+              </div>
+
+              <!-- right: messages -->
+              <div class="space-y-2">
+                <div class="text-base font-semibold text-white">Messages (JSON)</div>
+                <pre id="ts-messages" class="h-[60vh] border border-gray-600 rounded p-2 overflow-auto bg-gray-900 text-green-200 text-xs"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      this.setupTranslateEvents();
     }
 
     setupTranslateEvents() {
-        const buttons = document.querySelectorAll('#translate button');
-        buttons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.showNotification(`${btn.textContent} functionality coming soon`, 'info');
-            });
-        });
+      if (!this.translate) this.initTranslateState();
+      const $ = (id) => document.getElementById(id);
+
+      // inputs
+      const bindVal = (id, key, toNum = false) => {
+        const el = $(id); if (!el) return;
+        el.addEventListener('input', () => { this.translate[key] = toNum ? Number(el.value) : el.value; });
+      };
+      const bindChk = (id, key) => {
+        const el = $(id); if (!el) return;
+        el.addEventListener('change', () => { this.translate[key] = !!el.checked; });
+      };
+      bindVal('ts-api', 'apiKey');
+      bindVal('ts-batch', 'batch', true);
+      bindVal('ts-workers', 'workers', true);
+      bindVal('ts-timeout','timeout', true);
+      bindChk('ts-autosave','autosave');
+      bindVal('ts-lang',  'lang');
+      bindVal('ts-engine','engine');
+      bindVal('ts-temp',  'temperature', true);
+      bindVal('ts-topp',  'top_p', true);
+
+      // search / paging
+      const applySearch = () => { this.translate.search = $('ts-search').value.trim(); this.filterAndRenderSubs(); };
+      $('ts-search')?.addEventListener('input', applySearch);
+      $('ts-size')?.addEventListener('change', () => { this.translate.size = Number($('ts-size').value); this.translate.page = 1; this.renderSubsPage(); });
+      $('ts-page')?.addEventListener('change', () => { this.translate.page = Math.max(1, Number($('ts-page').value||1)); this.renderSubsPage(); });
+      $('ts-prev')?.addEventListener('click', () => { this.translate.page = Math.max(1, this.translate.page-1); this.renderSubsPage(); });
+      $('ts-nextpage')?.addEventListener('click', () => { this.translate.page = Math.min(this.totalPages||1, this.translate.page+1); this.renderSubsPage(); });
+      $('ts-follow')?.addEventListener('change', () => { this.translate.follow = $('ts-follow').checked; });
+
+      // actions
+      $('ts-load')?.addEventListener('click', () => this.promptLoadSRT());
+      $('ts-start')?.addEventListener('click', () => this.translateStart());
+      $('ts-resume')?.addEventListener('click', () => this.translateResume());
+      $('ts-fill')?.addEventListener('click', () => this.translateFillMissing());
+      $('ts-save')?.addEventListener('click', () => this.translateSave());
+      $('ts-export')?.addEventListener('click', () => this.translateExport());
+      $('ts-stop')?.addEventListener('click', () => this.translateStop());
+      $('ts-next')?.addEventListener('click', () => this.loadTab('editing'));
+      $('ts-clear')?.addEventListener('click', () => this.translateClear());
+
+      // first draw
+      this.renderSubsPage();
+      this.renderMessages();
     }
+
+    //// LOAD SRT (auto / manual) ////
+    async promptLoadSRT() {
+      if (this.currentSessionId) {
+        // coba auto dari backend session
+        const res = await fetch(`/api/session/${this.currentSessionId}/srt`, { method: 'GET' });
+        let text = await res.text();
+        if (!res.ok) {
+          // fallback: manual file
+          this.showNotification('Backend SRT tidak tersedia, pilih file SRT…', 'error');
+          return this.pickSRTFile();
+        }
+        // kalau backend balas JSON {srt: "..."} tangani
+        try { const obj = JSON.parse(text); if (obj && obj.srt) text = obj.srt; } catch {}
+        this.translate.mode = "auto";
+        this.translate.srtText = text;
+        this.translate.subtitles = this.parseSRT(text);
+        this.filterAndRenderSubs();
+        this.showNotification('SRT loaded from session', 'success');
+      } else {
+        return this.pickSRTFile();
+      }
+    }
+
+    // manual: open file chooser
+    pickSRTFile() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.srt';
+      input.onchange = async () => {
+        const file = input.files?.[0]; if (!file) return;
+        const text = await file.text();
+        this.translate.mode = "manual";
+        this.translate.srtText = text;
+        this.translate.subtitles = this.parseSRT(text);
+        this.filterAndRenderSubs();
+        this.showNotification(`Loaded SRT: ${file.name}`, 'success');
+      };
+      input.click();
+    }
+
+    //// TRANSLATE ACTIONS ////
+    async translateStart() {
+      const st = this.translate;
+      if (!st.srtText) return this.showNotification('SRT belum dimuat.', 'error');
+
+      // siapkan controller untuk Stop
+      if (st.abort) st.abort.abort();
+      st.abort = new AbortController();
+      st.running = true;
+
+      const params = new URLSearchParams({
+        api_key:      st.apiKey || '',
+        target_lang:  st.lang,
+        engine:       st.engine,
+        temperature:  String(st.temperature),
+        top_p:        String(st.top_p),
+        batch:        String(st.batch),
+        workers:      String(st.workers),
+        timeout:      String(st.timeout),
+        autosave:     st.autosave ? 'true' : 'false',
+        srt_text:     st.srtText,            // kirim SRT mentah (server boleh abaikan jika auto)
+        mode:         st.mode,               // "auto" atau "manual"
+      });
+
+      // pilih endpoint
+      const url = this.currentSessionId && st.mode === "auto"
+        ? `/api/session/${this.currentSessionId}/translate`
+        : `/api/translate`;
+
+      try {
+        this.appendMessage({event:"translate:start", payload:{endpoint:url, mode:st.mode}});
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: params,
+          signal: st.abort.signal,
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          this.appendMessage({event:"translate:error", payload:text});
+          return this.showNotification(`Failed to run translate: ${text}`, 'error');
+        }
+
+        // backend ideal: return { translated_srt: "...", stats: {...} }
+        let data={}; try { data=JSON.parse(text); } catch {}
+        const outSrt = data.translated_srt || data.output || '';
+        if (outSrt) {
+          this.translate.srtText = outSrt;
+          this.translate.subtitles = this.parseSRT(outSrt);
+          this.filterAndRenderSubs();
+        }
+        if (data.stats) this.appendMessage({event:"translate:done", payload:data.stats});
+        this.updateProgress?.(90, 'Translate done');
+        this.showNotification('Translate completed', 'success');
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          this.appendMessage({event:"translate:stopped"});
+          this.showNotification('Translate stopped', 'warning');
+        } else {
+          this.appendMessage({event:"translate:error", payload:String(e)});
+          this.showNotification(`Failed to run translate: ${e}`, 'error');
+        }
+      } finally {
+        st.running = false;
+      }
+    }
+
+    translateResume() {
+      // sederhana: jalankan lagi dengan state yang sama
+      if (!this.translate?.srtText) return this.showNotification('Belum ada SRT.', 'error');
+      return this.translateStart();
+    }
+
+    translateFillMissing() {
+      // placeholder: di-backend biasa diisi "hanya baris kosong"
+      // di sini kirim flag tambahan; server boleh mengabaikan
+      this.appendMessage({event:"fill-missing", payload:true});
+      return this.translateStart();
+    }
+
+    translateSave() {
+      if (!this.translate?.srtText) return this.showNotification('Belum ada SRT.', 'error');
+      const blob = new Blob([this.translate.srtText], {type:'text/plain;charset=utf-8'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'translated.srt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    translateExport() {
+      // ekspor messages log + srt
+      const payload = {
+        messages: this.translate?.messages || [],
+        srt: this.translate?.srtText || '',
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'translate_export.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    translateStop() {
+      if (this.translate?.abort) this.translate.abort.abort();
+    }
+
+    translateClear() {
+      this.initTranslateState();
+      this.loadTab('translate');
+    }
+
+    //// SUBTITLE VIEW ////
+    filterAndRenderSubs() {
+      const q = (this.translate.search || '').toLowerCase();
+      const src = this.translate.subtitles || [];
+      this.translate.filtered = q ? src.filter(x => (x.text||'').toLowerCase().includes(q)) : src.slice();
+      this.translate.page = 1;
+      this.renderSubsPage();
+    }
+
+    renderSubsPage() {
+      const st = this.translate;
+      const table = document.getElementById('ts-table');
+      const pagesEl = document.getElementById('ts-pages');
+      if (!table) return;
+      const arr = st.filtered || [];
+      this.totalPages = Math.max(1, Math.ceil(arr.length / st.size));
+      if (pagesEl) pagesEl.textContent = String(this.totalPages);
+      const start = (st.page - 1) * st.size;
+      const rows = arr.slice(start, start + st.size)
+        .map((s, i) => `
+          <div class="grid grid-cols-[64px,120px,120px,1fr] gap-2 px-3 py-1 border-b border-gray-700 text-sm text-gray-300">
+            <div class="text-gray-400">${s.index}</div>
+            <div class="font-mono">${s.start}</div>
+            <div class="font-mono">${s.end}</div>
+            <div>${this.escapeHtml(s.text||'')}</div>
+          </div>
+        `).join('');
+      table.innerHTML = `
+        <div class="grid grid-cols-[64px,120px,120px,1fr] gap-2 sticky top-0 bg-gray-800 px-3 py-1 border-b border-gray-600 font-semibold text-gray-300">
+          <div>#</div><div>Start</div><div>End</div><div>Text</div>
+        </div>
+        <div>${rows || '<div class="p-3 text-sm text-gray-500">No data.</div>'}</div>
+      `;
+      const pageInput = document.getElementById('ts-page');
+      if (pageInput) pageInput.value = String(st.page);
+      if (st.follow && rows) table.lastElementChild?.lastElementChild?.scrollIntoView({block:'end'});
+    }
+
+    //// MESSAGES (kanan) ////
+    appendMessage(obj) {
+      this.translate.messages.push({ts: new Date().toISOString(), ...obj});
+      this.renderMessages();
+    }
+
+    renderMessages() {
+      const el = document.getElementById('ts-messages');
+      if (!el) return;
+      el.textContent = JSON.stringify(this.translate.messages, null, 2);
+    }
+
+    //// SRT parse/format ////
+    parseSRT(text) {
+      const lines = text.replace(/\r/g,'').split('\n');
+      const items = [];
+      let i=0;
+      while (i < lines.length) {
+        const idx = Number(lines[i].trim());
+        if (!Number.isInteger(idx)) { i++; continue; }
+        const times = lines[i+1]||'';
+        const m = times.match(/(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})/);
+        if (!m) { i++; continue; }
+        i+=2;
+        const buf=[];
+        while (i<lines.length && lines[i].trim()!=='') { buf.push(lines[i]); i++; }
+        items.push({index: idx, start: m[1], end: m[2], text: buf.join('\n')});
+        while (i<lines.length && lines[i].trim()==='') i++;
+      }
+      return items;
+    }
+
+    escapeHtml(s){ 
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); 
+    }
+
+    // ============================
+    // TAB 3: EDITING
+    // ============================
 
     async loadEditingTab() {
         console.log('Loading Editing tab...');
@@ -1004,6 +1287,10 @@ class DracinApp {
             });
         }
     }
+
+    // ============================
+    // TAB 4: TTS EXPORT
+    // ============================
 
     async loadTTSExportTab() {
         console.log('Loading TTS Export tab...');
@@ -1342,6 +1629,17 @@ class DracinApp {
 
     saveAll() {
         this.showNotification('All changes saved successfully', 'success');
+    }
+    
+    appendLog(message) {
+        const logOutput = document.getElementById('log-output');
+        if (logOutput) {
+            const logEntry = document.createElement('div');
+            logEntry.className = 'text-gray-300 mb-1';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logOutput.appendChild(logEntry);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
     }
 }
 
