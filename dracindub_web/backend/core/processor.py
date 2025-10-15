@@ -15,7 +15,10 @@ from core.diarization import DiarizationEngine
 from core.translation import TranslationEngine
 from core.tts_export import TTSExportEngine
 from core.session_manager import SessionManager
-        
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # <repo root>
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 # Use absolute path to parent directory
 PROJECT_ROOT = Path(r"D:\xiaodub")  # Absolute path ke folder dimana file engine berada
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -160,58 +163,43 @@ class ProcessingManager:
                                               error=result)
         
         await self._notify_session_update(session_id)
-    
-    # === REPLACE SELURUH FUNGSI INI ===
+
+    # backend/core/processor.py
+
     async def run_diarization(self, session_id: str, cfg: dict):
         from pathlib import Path
         from core.diarization import DiarizationEngine
 
-        # Validasi session & file audio 16k (hasil extract-audio)
         session = self.get_session(session_id)
         if not session:
             raise ValueError("Session not found")
         if not getattr(session, "wav_16k", None):
             raise ValueError("16kHz audio not found. Run extract-audio first")
 
-        workdir = Path(session.workdir)
-        workdir.mkdir(parents=True, exist_ok=True)
-
-        # Jalankan diarization via engine yang sudah kamu buat
         engine = DiarizationEngine()
-
-        # progress_callback opsional; di sini cukup no-op (engine akan jalan di executor)
-        def progress_callback(percent: int, step: str = "Diarization"):
-            # Bisa diisi update ringan kalau mau; jangan await di sini.
-            pass
-
-        result = await engine.process(session, cfg, progress_callback)
-
-        # Normalisasi hasil
-        if not isinstance(result, dict) or not result.get("success"):
+        result = await engine.process(session, cfg, lambda *a, **k: None)
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Engine returned invalid result: {result!r}")
+        if not result.get("success"):
             raise RuntimeError(result.get("error", "Diarization failed"))
 
-        data = result.get("data", {})
-        seg_path = Path(data.get("segjson"))
-        spk_path = Path(data.get("spkjson"))
+        data = result["data"]
+        seg_path = Path(data["segjson"])
+        spk_path = Path(data["spkjson"])
+        srt_path = Path(data["srt"]) if data.get("srt") else None
 
-        if not seg_path or not seg_path.exists() or not spk_path or not spk_path.exists():
-            raise RuntimeError("Diarization finished but output files not found")
-
-        # Simpan ke session dan kirim update
+        # ... simpan & broadcast
         self.session_manager.update_session(
             session_id,
             segjson=seg_path,
             spkjson=spk_path,
+            srtpath=srt_path,
             status="diarization_complete",
-            progress=70,
+            progress=100,
             current_step="Diarization done",
         )
-        await self._notify_session_update(session_id)
 
-        # Kembalikan format yang dipakai endpoint
-        return {"segments_path": seg_path, "speakers_path": spk_path}
-    # === END REPLACE ===
-
+        return {"segments_path": seg_path, "speakers_path": spk_path, "srt_path": srt_path}
     
     async def run_tts_export(self, session_id: str, tts_config: Dict[str, Any]):
         session = self.session_manager.get_session(session_id)
