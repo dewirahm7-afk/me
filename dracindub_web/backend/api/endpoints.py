@@ -97,12 +97,12 @@ async def run_diarization(
         segments_path, speakers_path = result["segments_path"], result["speakers_path"]
         return JSONResponse({
             "status": "diarization_completed",
-            "segments_path": str(segments_path),
-            "speakers_path": str(speakers_path)
+            "segments_path": str(result["segments_path"]),
+            "speakers_path": str(result["speakers_path"]),
         })
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+        import traceback
+        raise HTTPException(status_code=400, detail=f"{e}\n{traceback.format_exc()}")
 
 @router.post("/api/session/{session_id}/translate")
 async def run_translation(
