@@ -566,47 +566,77 @@ class DracinApp {
 		}
 	}
 
+	// Tab 1 – Diarization
 	async runDiarization() {
-		try {
-			// Get config from form
-			const config = {
-				male_ref: document.getElementById('male-ref').value,
-				female_ref: document.getElementById('female-ref').value,
-				hf_token: document.getElementById('hf-token').value,
-				use_gpu: document.getElementById('use-gpu').checked,
-				top_n: parseInt(document.getElementById('top-n').value)
-			};
+	  // pastikan sudah ada session
+	  if (!this.currentSessionId) {
+		this.showNotification('Create Session dulu.', 'error');
+		return;
+	  }
 
-			this.showLoading('Running diarization...');
-			
-			const formData = new FormData();
-			formData.append('male_ref', config.male_ref);
-			formData.append('female_ref', config.female_ref);
-			formData.append('hf_token', config.hf_token);
-			formData.append('use_gpu', config.use_gpu);
-			formData.append('top_n', config.top_n.toString());
+	  // ambil input dari UI
+	  const maleRefEl    = document.getElementById('male-ref');
+	  const femaleRefEl  = document.getElementById('female-ref');
+	  const hfTokenEl    = document.getElementById('hf-token');
+	  const useGpuEl     = document.getElementById('use-gpu');
+	  const topNEl       = document.getElementById('top-n');
 
-			const response = await fetch(`/api/session/${this.currentSessionId}/diarization`, {
-				method: 'POST',
-				body: formData
-			});
-			
-			if (response.ok) {
-				const data = await response.json();
-				this.updateProgress(70, 'Diarization done');
-				if (data.segments_path && data.speakers_path) {
-				  this.appendLog(`Segments: ${data.segments_path}`);
-				  this.appendLog(`Speakers: ${data.speakers_path}`);
-				}
-				this.showNotification('Diarization completed successfully', 'success');
-			} else {
-				throw new Error('Failed to run diarization');
-			}
-		} catch (error) {
-			this.showNotification(`Error: ${error.message}`, 'error');
-		} finally {
-			this.hideLoading();
+	  const male_ref     = (maleRefEl?.value || '').trim();
+	  const female_ref   = (femaleRefEl?.value || '').trim();
+	  const hf_token     = (hfTokenEl?.value || '').trim();
+	  const use_gpu      = useGpuEl?.checked ? 'true' : 'false';
+	  const top_n        = topNEl?.value ? parseInt(topNEl.value, 10) : 5;
+
+	  if (!male_ref || !female_ref) {
+		this.showNotification('Male/Female Reference wajib diisi.', 'error');
+		return;
+	  }
+
+	  const url = `/api/session/${this.currentSessionId}/diarization`;
+	  const body = new URLSearchParams({
+		male_ref,
+		female_ref,
+		hf_token,
+		use_gpu,
+		top_n: String(top_n),
+	  });
+
+	  try {
+		this.appendLog?.('Running diarization...');
+		this.showLoading('Running diarization...');
+
+		const res = await fetch(url, {
+		  method: 'POST',
+		  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		  body,
+		});
+
+		const text = await res.text(); // ambil body apa adanya dulu
+
+		if (!res.ok) {
+		  // tampilkan pesan error asli dari backend biar gampang debug
+		  this.showNotification(`Failed to run diarization: ${text}`, 'error');
+		  this.appendLog?.(text);
+		  return;
 		}
+
+		// coba parse JSON respon
+		let data = {};
+		try { data = JSON.parse(text); } catch (_) {}
+
+		const segPath = data.segments_path || data.segjson || '';
+		const spkPath = data.speakers_path || data.spkjson || '';
+
+		if (segPath) this.appendLog?.(`Segments: ${segPath}`);
+		if (spkPath) this.appendLog?.(`Speakers: ${spkPath}`);
+
+		this.updateProgress?.(70, 'Diarization done');
+		this.showNotification('Diarization completed successfully', 'success');
+	  } catch (err) {
+		this.showNotification(`Failed to run diarization: ${err?.message || err}`, 'error');
+	  } finally {
+		this.hideLoading();
+	  }
 	}
 
 	updateProgress(percent, message) {
