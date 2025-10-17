@@ -1688,15 +1688,6 @@ async loadEditingTab() {
   }
 }
 
-_edPopulateSpeakerFilter(list) {
-  const sel = document.getElementById('ed-speaker-select');
-  if (!sel) return;
-  const current = this.editing.speakerFilter || 'all';
-  sel.innerHTML = `<option value="all">All speakers</option>` +
-    (list || []).map(s => `<option value="${s}">${s}</option>`).join('');
-  sel.value = current === 'all' ? 'all' : (list.includes(current) ? current : 'all');
-}
-
 _edBindEvents() {
   const $ = id => document.getElementById(id);
   const ed = this.editing;
@@ -1717,12 +1708,13 @@ _edBindEvents() {
   $('ed-gender')?.addEventListener('change', () => {
     ed.genderFilter = $('ed-gender').value; this._edFilterRender();
   });
-const spkSel = document.getElementById('ed-speaker-select');
-spkSel?.addEventListener('change', () => {
-  this.editing.speakerFilter = spkSel.value; // 'all' atau 'SPEAKER_xx'
-  this._edFilterRender();
-
-});
+const spkSel = document.getElementById('ed-speaker');
+if (spkSel) {
+  spkSel.addEventListener('change', () => {
+    this.editing.speakerFilter = spkSel.value; // contoh: "SPEAKER_04" atau "all"
+    this._edFilterRender();
+  });
+}
   $('ed-search')?.addEventListener('input', () => {
     ed.search = $('ed-search').value.trim(); this._edFilterRender();
   });
@@ -1737,14 +1729,21 @@ spkSel?.addEventListener('change', () => {
   const v = $('ed-video');
   v?.addEventListener('timeupdate', () => this._edOnVideoTime(v.currentTime));
 }
+
 _edPopulateSpeakerFilter(list) {
-  const sel = document.getElementById('ed-speaker-select');
+  const sel = document.getElementById('ed-speaker');
   if (!sel) return;
-  const current = this.editing.speakerFilter || 'all';
-  sel.innerHTML = `<option value="all">All speakers</option>` +
-    (list || []).map(s => `<option value="${s}">${s}</option>`).join('');
-  sel.value = current === 'all' ? 'all' : (list.includes(current) ? current : 'all');
+
+  const speakers = Array.isArray(list) ? list : [];
+  const current = (this.editing.speakerFilter || 'all');
+
+  sel.innerHTML =
+    `<option value="all">All speakers</option>` +
+    speakers.map(s => `<option value="${s}">${s}</option>`).join('');
+
+  sel.value = speakers.includes(current) ? current : 'all';
 }
+
 
 async _edPopulateSessionSelector() {
   try {
@@ -1766,7 +1765,7 @@ async _edLoad(sessionId) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
 
-    const data = await res.json(); // {video, rows:[...]}
+    const data = await res.json(); // {video, rows:[...], speakers?}
     ed.sessionId = sessionId;
     this.currentSessionId = sessionId;
 
@@ -1778,10 +1777,14 @@ async _edLoad(sessionId) {
       speaker: r.speaker || "",
       gender: (r.gender || "unknown").toLowerCase(),
       notes: r.notes || ""
-	  
     }));
-	ed.speakers = Array.isArray(data.speakers) ? data.speakers : [];
-	this._edPopulateSpeakerFilter(ed.speakers);
+
+    // Fallback untuk speakers jika backend belum mengirim atau kosong
+    ed.speakers = Array.isArray(data.speakers) && data.speakers.length
+      ? data.speakers
+      : [...new Set(ed.rows.map(r => (r.speaker || '').trim()).filter(Boolean))].sort();
+
+    this._edPopulateSpeakerFilter(ed.speakers);
     ed.videoUrl = `/api/session/${sessionId}/video`;
 
     const info = document.getElementById('ed-session-info');
@@ -1800,27 +1803,26 @@ async _edLoad(sessionId) {
 _edFilterRender() {
   const ed = this.editing;
   const term = (ed.search || "").toLowerCase();
-  const gf = ed.genderFilter;
-  const sf = ed.speakerFilter || 'all';
+  const gf = ed.genderFilter;                   // "all" | "male" | "female" | "unknown"
+  const sf = (ed.speakerFilter || 'all').toLowerCase(); // "all" atau "speaker_xx"
 
   ed.filtered = ed.rows.filter(r => {
     if (gf !== 'all' && (r.gender || 'unknown') !== gf) return false;
-    if (sf !== 'all' && (r.speaker || '') !== sf) return false;
+    const rs = (r.speaker || '').toLowerCase();
+    if (sf !== 'all' && rs !== sf) return false;
     if (term) {
-      const hay = `${r.translation || ""}`.toLowerCase();
-      if (!hay.includes(term)) return false;
+      const t = (r.translation || '').toLowerCase();
+      if (!t.includes(term)) return false;
     }
     return true;
   });
 
   ed.total = ed.rows.length;
   ed.shown = ed.filtered.length;
-
   this._edRenderList();
   const c = document.getElementById('ed-counter');
   if (c) c.textContent = `${ed.shown} shown / ${ed.total} total`;
 }
-
 
 _edRenderList() {
   const wrap = document.getElementById('ed-list');
@@ -1903,7 +1905,8 @@ _edRenderList() {
   });
 }
 
-_edSeekToRow(idx, autoplay=false) {
+// app.js — final version
+_edSeekToRow(idx, autoplay = false) {
   const row = this.editing.rows.find(x => x.index === idx);
   const v = document.getElementById('ed-video');
   if (!row || !v) return;
@@ -1911,29 +1914,46 @@ _edSeekToRow(idx, autoplay=false) {
   const toSec = (ts) => {
     const m = ts.match(/(\d\d):(\d\d):(\d\d),(\d\d\d)/);
     if (!m) return 0;
-    return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+m[4])/1000;
+    return (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
   };
 
   const start = Math.max(0, toSec(row.start) + 0.01);
   const end   = toSec(row.end);
 
-  // stop previous guard (if any)
+  // stop guard lama (kalau ada)
   if (this._segGuard) { clearInterval(this._segGuard); this._segGuard = null; }
 
-  v.currentTime = start;
-  if (autoplay) v.play();
+  const playAfterSeek = () => {
+    v.removeEventListener('seeked', playAfterSeek);
+    if (autoplay) v.play();
 
-  // guard: pause at end
-  this._segGuard = setInterval(() => {
-    if (v.currentTime >= end - 0.01) {
-      v.pause();
-      clearInterval(this._segGuard);
-      this._segGuard = null;
-    }
-  }, 50);
+    // guard: auto-pause di akhir segmen
+    this._segGuard = setInterval(() => {
+      if (v.currentTime >= end - 0.01) {
+        v.pause();
+        clearInterval(this._segGuard);
+        this._segGuard = null;
+      }
+    }, 50);
 
-  // highlight immediately
-  this._edHighlight(idx);
+    // highlight row aktif
+    this._edHighlight(idx);
+  };
+
+  v.pause();
+
+  const doSeek = () => {
+    // set currentTime setelah metadata ada → browser pasti melakukan seek
+    v.currentTime = start;
+    v.addEventListener('seeked', playAfterSeek, { once: true });
+  };
+
+  // kalau metadata sudah ada, langsung seek; kalau belum, tunggu dulu
+  if (v.readyState >= 1) {
+    doSeek();
+  } else {
+    v.addEventListener('loadedmetadata', doSeek, { once: true });
+  }
 }
 
 _edRebuildSpeakerFilterOptions() {
