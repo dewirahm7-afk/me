@@ -128,6 +128,10 @@ class DracinApp {
 	  if (tabContent) {
 		tabContent.classList.add('active');
 	  }
+		if (tabName === 'editing') {
+		  await this.loadEditingTab();
+		  return;
+		}
 
 	  this.activeTab = tabName;
 
@@ -220,7 +224,7 @@ class DracinApp {
                         </h3>
                         <div class="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center hover:border-blue-400 transition-colors cursor-pointer" id="srt-drop-zone">
                             <i class="fas fa-file-upload text-4xl text-gray-400 mb-3"></i>
-                            <p class="text-gray-300 mb-2">Drag & drop SRT file or click to browse</p>
+                            <p class="text-gray-300 mb-2">Drag & drop SRT Hasil OCR</p>
                             <p class="text-sm text-gray-400 mb-4">Format: SubRip (.srt)</p>
                             <button class="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded transition-colors">
                                 <i class="fas fa-search mr-2"></i>Browse Files
@@ -251,7 +255,7 @@ class DracinApp {
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-2 text-gray-300">HF Token</label>
-                            <input id="hf-token" type="password" placeholder="Enter HuggingFace token"
+                            <input id="hf-token" type="password" value="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"
                                    class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white placeholder-gray-400">
                         </div>
                         <div>
@@ -626,7 +630,7 @@ class DracinApp {
         if (segPath) this.appendLog?.(`Segments: ${segPath}`);
         if (spkPath) this.appendLog?.(`Speakers: ${spkPath}`);
 
-        this.updateProgress?.(70, 'Diarization done');
+        this.updateProgress?.(100, 'Diarization done');
         this.showNotification('Diarization completed successfully', 'success');
       } catch (err) {
         this.showNotification(`Failed to run diarization: ${err?.message || err}`, 'error');
@@ -744,37 +748,6 @@ class DracinApp {
         }, 800);
     }
 
-    // ============================
-    // TAB 2: TRANSLATE
-    // ============================
-
-    initTranslateState() {
-      this.translate = {
-        mode: "auto",            // "auto" | "manual"
-        srtText: "",             // SRT source (manual/auto)
-        subtitles: [],           // parsed SRT
-        filtered: [],            // setelah search
-        page: 1,
-        size: 100,
-        follow: true,
-        search: "",
-        // run config
-        apiKey: "",
-        lang: "id",
-        engine: "llm",
-        temperature: 0.3,
-        top_p: 0.9,
-        batch: 20,
-        workers: 1,
-        timeout: 120,
-        autosave: true,
-        // misc
-        abort: null,
-        running: false,
-        messages: []             // kanan: Messages(JSON)
-      };
-    }
-
 	async loadTranslateTab() {
 	  const tab = document.getElementById('translate');
 	  if (!tab) return;
@@ -792,366 +765,6 @@ class DracinApp {
 	  // langsung render UI + bind
 	  this.renderTranslateTab();
 	}
-
-
-    renderTranslateTab() {
-      if (!this.translate) this.initTranslateState();
-      const st = this.translate;
-      
-      const tabContent = document.getElementById('translate');
-      if (!tabContent) return;
-
-      tabContent.innerHTML = `
-        <div class="bg-gray-800 rounded-lg p-6">
-          <h2 class="text-2xl font-bold mb-6 text-green-400">
-            <i class="fas fa-language mr-2"></i>Translate
-          </h2>
-          
-          <div class="p-3 space-y-3">
-            <div class="flex flex-wrap items-center gap-3">
-              <div class="flex items-center gap-2">
-                <span class="text-sm whitespace-nowrap text-gray-300">DeepSeek API Key</span>
-                <input id="ts-api" type="password" value="${st.apiKey || ''}"
-                       class="border border-gray-600 bg-gray-700 text-white rounded px-3 py-1 w-[360px]" placeholder="sk-..." />
-              </div>
-
-              <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-300">Batch</span>
-                <input id="ts-batch" type="number" min="1" value="${st.batch}"
-                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
-              </div>
-
-              <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-300">Workers</span>
-                <input id="ts-workers" type="number" min="1" value="${st.workers}"
-                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-14" />
-              </div>
-
-              <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-300">Timeout</span>
-                <input id="ts-timeout" type="number" min="30" value="${st.timeout}"
-                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
-              </div>
-
-              <label class="inline-flex items-center gap-2">
-                <input id="ts-autosave" type="checkbox" ${st.autosave ? 'checked' : ''} class="w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
-                <span class="text-sm text-gray-300">Autosave</span>
-              </label>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2">
-              <div class="flex gap-2">
-                <button id="ts-load" class="btn btn-slate">📂 Load SRT</button>
-                <button id="ts-start" class="btn btn-primary">▶ Start Translate</button>
-                <button id="ts-resume" class="btn btn-slate">⏵ Resume</button>
-                <button id="ts-fill" class="btn btn-slate">✳ Fill Missing</button>
-                <button id="ts-save" class="btn btn-slate">💾 Save</button>
-                <button id="ts-export" class="btn btn-slate">⬇ Export As…</button>
-                <button id="ts-stop" class="btn btn-danger">■ Stop</button>
-                <button id="ts-next" class="btn btn-slate">➡ Next Tab</button>
-                <button id="ts-clear" class="btn btn-slate">🗑 Clear Cache</button>
-              </div>
-              <div class="ml-auto flex items-center gap-2">
-                <span class="text-sm text-gray-300">Lang</span>
-                <select id="ts-lang" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1">
-                  <option value="id" ${st.lang==='id'?'selected':''}>Indonesian (id)</option>
-                  <option value="en" ${st.lang==='en'?'selected':''}>English (en)</option>
-                </select>
-                <span class="text-sm text-gray-300">Engine</span>
-                <select id="ts-engine" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1">
-                  <option value="llm" ${st.engine==='llm'?'selected':''}>LLM (default)</option>
-                  <option value="nllb" ${st.engine==='nllb'?'selected':''}>NLLB</option>
-                  <option value="whisper" ${st.engine==='whisper'?'selected':''}>Whisper</option>
-                </select>
-                <span class="text-sm text-gray-300">Temp</span>
-                <input id="ts-temp" type="number" step="0.1" min="0" max="2" value="${st.temperature}"
-                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
-                <span class="text-sm text-gray-300">top-p</span>
-                <input id="ts-topp" type="number" step="0.05" min="0" max="1" value="${st.top_p}"
-                       class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <!-- left: subtitle viewer -->
-              <div class="space-y-2">
-                <div class="flex items-center gap-3">
-                  <div class="text-base font-semibold text-white">Subtitle Viewer</div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm text-gray-300">Cari:</span>
-                    <input id="ts-search" type="text" placeholder="..." class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-64" />
-                  </div>
-                  <div class="ml-auto flex items-center gap-2">
-                    <button id="ts-prev" class="btn btn-slate">‹ Prev</button>
-                    <button id="ts-nextpage" class="btn btn-slate">Next ›</button>
-                    <span class="text-sm text-gray-300">Page</span>
-                    <input id="ts-page" type="number" min="1" value="${st.page}" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-16" />
-                    <span class="text-sm text-gray-300">of <span id="ts-pages">1</span></span>
-                    <span class="text-sm text-gray-300">Size</span>
-                    <select id="ts-size" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1">
-                      ${[50,100,200,500].map(n=>`<option value="${n}" ${st.size===n?'selected':''}>${n}</option>`).join('')}
-                    </select>
-                    <label class="inline-flex items-center gap-2">
-                      <input id="ts-follow" type="checkbox" ${st.follow?'checked':''} class="w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
-                      <span class="text-sm text-gray-300">Follow</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div id="ts-table" class="border border-gray-600 rounded h-[54vh] overflow-auto bg-gray-900"></div>
-              </div>
-
-              <!-- right: messages -->
-              <div class="space-y-2">
-                <div class="text-base font-semibold text-white">Messages (JSON)</div>
-                <pre id="ts-messages" class="h-[60vh] border border-gray-600 rounded p-2 overflow-auto bg-gray-900 text-green-200 text-xs"></pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-
-      this.setupTranslateEvents();
-    }
-
-    setupTranslateEvents() {
-      if (!this.translate) this.initTranslateState();
-      const $ = (id) => document.getElementById(id);
-
-      // inputs
-      const bindVal = (id, key, toNum = false) => {
-        const el = $(id); if (!el) return;
-        el.addEventListener('input', () => { this.translate[key] = toNum ? Number(el.value) : el.value; });
-      };
-      const bindChk = (id, key) => {
-        const el = $(id); if (!el) return;
-        el.addEventListener('change', () => { this.translate[key] = !!el.checked; });
-      };
-      bindVal('ts-api', 'apiKey');
-      bindVal('ts-batch', 'batch', true);
-      bindVal('ts-workers', 'workers', true);
-      bindVal('ts-timeout','timeout', true);
-      bindChk('ts-autosave','autosave');
-      bindVal('ts-lang',  'lang');
-      bindVal('ts-engine','engine');
-      bindVal('ts-temp',  'temperature', true);
-      bindVal('ts-topp',  'top_p', true);
-
-      // search / paging
-      const applySearch = () => { this.translate.search = $('ts-search').value.trim(); this.filterAndRenderSubs(); };
-      $('ts-search')?.addEventListener('input', applySearch);
-      $('ts-size')?.addEventListener('change', () => { this.translate.size = Number($('ts-size').value); this.translate.page = 1; this.renderSubsPage(); });
-      $('ts-page')?.addEventListener('change', () => { this.translate.page = Math.max(1, Number($('ts-page').value||1)); this.renderSubsPage(); });
-      $('ts-prev')?.addEventListener('click', () => { this.translate.page = Math.max(1, this.translate.page-1); this.renderSubsPage(); });
-      $('ts-nextpage')?.addEventListener('click', () => { this.translate.page = Math.min(this.totalPages||1, this.translate.page+1); this.renderSubsPage(); });
-      $('ts-follow')?.addEventListener('change', () => { this.translate.follow = $('ts-follow').checked; });
-
-      // actions
-      $('ts-load')?.addEventListener('click', () => this.promptLoadSRT());
-      $('ts-start')?.addEventListener('click', () => this.translateStart());
-      $('ts-resume')?.addEventListener('click', () => this.translateResume());
-      $('ts-fill')?.addEventListener('click', () => this.translateFillMissing());
-      $('ts-save')?.addEventListener('click', () => this.translateSave());
-      $('ts-export')?.addEventListener('click', () => this.translateExport());
-      $('ts-stop')?.addEventListener('click', () => this.translateStop());
-      $('ts-next')?.addEventListener('click', () => this.loadTab('editing'));
-      $('ts-clear')?.addEventListener('click', () => this.translateClear());
-
-      // first draw
-      this.renderSubsPage();
-      this.renderMessages();
-    }
-
-    //// LOAD SRT (auto / manual) ////
-    async promptLoadSRT() {
-      if (this.currentSessionId) {
-        // coba auto dari backend session
-        const res = await fetch(`/api/session/${this.currentSessionId}/srt`, { method: 'GET' });
-        let text = await res.text();
-        if (!res.ok) {
-          // fallback: manual file
-          this.showNotification('Backend SRT tidak tersedia, pilih file SRT…', 'error');
-          return this.pickSRTFile();
-        }
-        // kalau backend balas JSON {srt: "..."} tangani
-        try { const obj = JSON.parse(text); if (obj && obj.srt) text = obj.srt; } catch {}
-        this.translate.mode = "auto";
-        this.translate.srtText = text;
-        this.translate.subtitles = this.parseSRT(text);
-        this.filterAndRenderSubs();
-        this.showNotification('SRT loaded from session', 'success');
-      } else {
-        return this.pickSRTFile();
-      }
-    }
-
-    // manual: open file chooser
-    pickSRTFile() {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.srt';
-      input.onchange = async () => {
-        const file = input.files?.[0]; if (!file) return;
-        const text = await file.text();
-        this.translate.mode = "manual";
-        this.translate.srtText = text;
-        this.translate.subtitles = this.parseSRT(text);
-        this.filterAndRenderSubs();
-        this.showNotification(`Loaded SRT: ${file.name}`, 'success');
-      };
-      input.click();
-    }
-
-    //// TRANSLATE ACTIONS ////
-    async translateStart() {
-      const st = this.translate;
-      if (!st.srtText) return this.showNotification('SRT belum dimuat.', 'error');
-
-      // siapkan controller untuk Stop
-      if (st.abort) st.abort.abort();
-      st.abort = new AbortController();
-      st.running = true;
-
-      const params = new URLSearchParams({
-        api_key:      st.apiKey || '',
-        target_lang:  st.lang,
-        engine:       st.engine,
-        temperature:  String(st.temperature),
-        top_p:        String(st.top_p),
-        batch:        String(st.batch),
-        workers:      String(st.workers),
-        timeout:      String(st.timeout),
-        autosave:     st.autosave ? 'true' : 'false',
-        srt_text:     st.srtText,            // kirim SRT mentah (server boleh abaikan jika auto)
-        mode:         st.mode,               // "auto" atau "manual"
-      });
-
-      // pilih endpoint
-      const url = this.currentSessionId && st.mode === "auto"
-        ? `/api/session/${this.currentSessionId}/translate`
-        : `/api/translate`;
-
-      try {
-        this.appendMessage({event:"translate:start", payload:{endpoint:url, mode:st.mode}});
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: params,
-          signal: st.abort.signal,
-        });
-        const text = await res.text();
-        if (!res.ok) {
-          this.appendMessage({event:"translate:error", payload:text});
-          return this.showNotification(`Failed to run translate: ${text}`, 'error');
-        }
-
-        // backend ideal: return { translated_srt: "...", stats: {...} }
-        let data={}; try { data=JSON.parse(text); } catch {}
-        const outSrt = data.translated_srt || data.output || '';
-        if (outSrt) {
-          this.translate.srtText = outSrt;
-          this.translate.subtitles = this.parseSRT(outSrt);
-          this.filterAndRenderSubs();
-        }
-        if (data.stats) this.appendMessage({event:"translate:done", payload:data.stats});
-        this.updateProgress?.(90, 'Translate done');
-        this.showNotification('Translate completed', 'success');
-      } catch (e) {
-        if (e.name === 'AbortError') {
-          this.appendMessage({event:"translate:stopped"});
-          this.showNotification('Translate stopped', 'warning');
-        } else {
-          this.appendMessage({event:"translate:error", payload:String(e)});
-          this.showNotification(`Failed to run translate: ${e}`, 'error');
-        }
-      } finally {
-        st.running = false;
-      }
-    }
-
-    translateResume() {
-      // sederhana: jalankan lagi dengan state yang sama
-      if (!this.translate?.srtText) return this.showNotification('Belum ada SRT.', 'error');
-      return this.translateStart();
-    }
-
-    translateFillMissing() {
-      // placeholder: di-backend biasa diisi "hanya baris kosong"
-      // di sini kirim flag tambahan; server boleh mengabaikan
-      this.appendMessage({event:"fill-missing", payload:true});
-      return this.translateStart();
-    }
-
-    translateSave() {
-      if (!this.translate?.srtText) return this.showNotification('Belum ada SRT.', 'error');
-      const blob = new Blob([this.translate.srtText], {type:'text/plain;charset=utf-8'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'translated.srt';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }
-
-    translateExport() {
-      // ekspor messages log + srt
-      const payload = {
-        messages: this.translate?.messages || [],
-        srt: this.translate?.srtText || '',
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'translate_export.json';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }
-
-    translateStop() {
-      if (this.translate?.abort) this.translate.abort.abort();
-    }
-
-    translateClear() {
-      this.initTranslateState();
-      this.loadTab('translate');
-    }
-
-    //// SUBTITLE VIEW ////
-    filterAndRenderSubs() {
-      const q = (this.translate.search || '').toLowerCase();
-      const src = this.translate.subtitles || [];
-      this.translate.filtered = q ? src.filter(x => (x.text||'').toLowerCase().includes(q)) : src.slice();
-      this.translate.page = 1;
-      this.renderSubsPage();
-    }
-
-    renderSubsPage() {
-      const st = this.translate;
-      const table = document.getElementById('ts-table');
-      const pagesEl = document.getElementById('ts-pages');
-      if (!table) return;
-      const arr = st.filtered || [];
-      this.totalPages = Math.max(1, Math.ceil(arr.length / st.size));
-      if (pagesEl) pagesEl.textContent = String(this.totalPages);
-      const start = (st.page - 1) * st.size;
-      const rows = arr.slice(start, start + st.size)
-        .map((s, i) => `
-          <div class="grid grid-cols-[64px,120px,120px,1fr] gap-2 px-3 py-1 border-b border-gray-700 text-sm text-gray-300">
-            <div class="text-gray-400">${s.index}</div>
-            <div class="font-mono">${s.start}</div>
-            <div class="font-mono">${s.end}</div>
-            <div>${this.escapeHtml(s.text||'')}</div>
-          </div>
-        `).join('');
-      table.innerHTML = `
-        <div class="grid grid-cols-[64px,120px,120px,1fr] gap-2 sticky top-0 bg-gray-800 px-3 py-1 border-b border-gray-600 font-semibold text-gray-300">
-          <div>#</div><div>Start</div><div>End</div><div>Text</div>
-        </div>
-        <div>${rows || '<div class="p-3 text-sm text-gray-500">No data.</div>'}</div>
-      `;
-      const pageInput = document.getElementById('ts-page');
-      if (pageInput) pageInput.value = String(st.page);
-      if (st.follow && rows) table.lastElementChild?.lastElementChild?.scrollIntoView({block:'end'});
-    }
 
     //// MESSAGES (kanan) ////
     appendMessage(obj) {
@@ -1189,104 +802,1235 @@ class DracinApp {
       return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); 
     }
 
-    // ============================
-    // TAB 3: EDITING
-    // ============================
+	// PATCH untuk app.js - Ganti fungsi-fungsi Translate
 
-    async loadEditingTab() {
-        console.log('Loading Editing tab...');
-        const tabContent = document.getElementById('editing');
-        if (!tabContent) return;
+	/* ==============================
+	 * TRANSLATE STATE
+	 * ============================== */
+	initTranslateState() {
+	  this.translate = {
+		mode: "auto",
+		// data
+		originalSubs: [],      // simpan original (tetap)
+		subtitles: [],         // working copy + tempat menaruh .trans
+		filtered: [],
+		srtText: "",
+		// ui
+		page: 1,
+		size: 100,
+		follow: true,
+		search: "",
+		// run cfg
+		apiKey: "sk-dbb007f10bc34473a2a890d556581edc",
+		lang: "id",
+		engine: "llm",
+		temperature: 0.1,
+		top_p: 0.3,
+		batch: 20,
+		workers: 1,
+		timeout: 120,
+		autosave: true,
+		// exec
+		running: false,
+		abort: null,
+		style: "dubbing",  // "dubbing" | "normal"
+		// log
+		messages: []
+	  };
+	}
 
-        // Clear and show loading
-        tabContent.innerHTML = `
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-2xl font-bold mb-6 text-yellow-400">
-                    <i class="fas fa-edit mr-2"></i>Editing
-                </h2>
-                <div class="text-center py-8">
-                    <div class="loading-spinner mx-auto mb-4"></div>
-                    <p class="text-gray-400">Loading Editing interface...</p>
-                </div>
-            </div>
-        `;
+	/* ==============================
+	 * RENDER TAB TRANSLATE (layout 1 baris untuk subtitle)
+	 * ============================== */
+	renderTranslateTab() {
+	  if (!this.translate) this.initTranslateState();
+	  const st = this.translate;
+	  
+	  const tabContent = document.getElementById('translate');
+	  if (!tabContent) return;
 
-        setTimeout(() => {
-            this.renderEditingTab();
-        }, 500);
+	  tabContent.innerHTML = `
+		<div class="bg-gray-800 rounded-lg p-6">
+		  <h2 class="text-2xl font-bold mb-6 text-green-400">
+			<i class="fas fa-language mr-2"></i>Translate
+		  </h2>
+		  
+		  <div class="p-3 space-y-3">
+			<!-- Header dengan controls -->
+			<div class="flex flex-wrap items-center gap-3">
+			  <div class="flex items-center gap-2">
+				<span class="text-sm whitespace-nowrap text-gray-300">API Key</span>
+				<input id="ts-api" type="password" value="${st.apiKey || ''}"
+					   class="border border-gray-600 bg-gray-700 text-white rounded px-3 py-1 w-[200px]" placeholder="sk-..." />
+			  </div>
+			  <div class="flex items-center gap-2">
+				<span class="text-sm text-gray-300">Batch</span>
+				<input id="ts-batch" type="number" min="1" value="${st.batch}"
+					   class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-12" />
+			  </div>
+			  <div class="flex items-center gap-2">
+				<span class="text-sm text-gray-300">Workers</span>
+				<input id="ts-workers" type="number" min="1" value="${st.workers}"
+					   class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-10" />
+			  </div>
+			  <label class="inline-flex items-center gap-1">
+				<input id="ts-autosave" type="checkbox" ${st.autosave ? 'checked' : ''} class="w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
+				<span class="text-sm text-gray-300">Autosave</span>
+			  </label>
+
+			  <!-- Progress bar -->
+			  <div class="ml-2 w-[120px] h-2 bg-gray-700 rounded overflow-hidden">
+				<div id="ts-progressbar" class="h-full bg-blue-500 transition-all duration-300" style="width:0%"></div>
+			  </div>
+			  <div id="ts-progresslabel" class="text-xs text-gray-300 min-w-[50px]">0% (0/0)</div>
+			</div>
+
+			<!-- Action buttons & config -->
+			<div class="flex flex-wrap items-center gap-2">
+			  <div class="flex gap-1 flex-wrap">
+				<button id="ts-load" class="btn btn-slate text-xs px-2 py-1">📂 Load</button>
+				<button id="ts-start" class="btn btn-primary text-xs px-2 py-1">▶ Start</button>
+				<button id="ts-resume" class="btn btn-slate text-xs px-2 py-1">⏵ Resume</button>
+				<button id="ts-fill" class="btn btn-slate text-xs px-2 py-1">✳ Fill</button>
+				<button id="ts-save" class="btn btn-slate text-xs px-2 py-1">💾 Save</button>
+				<button id="ts-export" class="btn btn-slate text-xs px-2 py-1">⬇ Export</button>
+				<button id="ts-stop" class="btn btn-danger text-xs px-2 py-1">■ Stop</button>
+				<button id="ts-next" class="btn btn-slate text-xs px-2 py-1">➡ Next</button>
+				<button id="ts-clear" class="btn btn-slate text-xs px-2 py-1">🗑 Clear</button>
+			  </div>
+			  <div class="ml-auto flex items-center gap-2 flex-wrap">
+				<span class="text-sm text-gray-300">Style</span>
+				<select id="ts-style" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 text-xs w-24">
+				  <option value="dubbing">dubbing</option>
+				  <option value="normal">normal</option>
+				</select>
+				<span class="text-sm text-gray-300">Lang</span>
+				<select id="ts-lang" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 text-xs w-16">
+				  <option value="id" ${st.lang==='id'?'selected':''}>ID</option>
+				  <option value="en" ${st.lang==='en'?'selected':''}>EN</option>
+				</select>
+				<span class="text-sm text-gray-300">Engine</span>
+				<select id="ts-engine" class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 text-xs w-20">
+				  <option value="llm" ${st.engine==='llm'?'selected':''}>LLM</option>
+				  <option value="nllb" ${st.engine==='nllb'?'selected':''}>NLLB</option>
+				  <option value="whisper" ${st.engine==='whisper'?'selected':''}>Whisper</option>
+				</select>
+				<span class="text-sm text-gray-300">Temp</span>
+				<input id="ts-temp" type="number" step="0.1" min="0" max="2" value="${st.temperature}"
+					   class="border border-gray-600 bg-gray-700 text-white rounded px-1 py-1 w-10 text-xs" />
+				<span class="text-sm text-gray-300">top-p</span>
+				<input id="ts-topp" type="number" step="0.05" min="0" max="1" value="${st.top_p}"
+					   class="border border-gray-600 bg-gray-700 text-white rounded px-1 py-1 w-10 text-xs" />
+			  </div>
+			</div>
+
+			<!-- Main content area - 1 BARIS SAJA -->
+			<div class="flex gap-3 h-[65vh]">
+			  <!-- LEFT: Subtitle Viewer -->
+			  <div class="flex-1 flex flex-col">
+				<div class="flex items-center gap-3 mb-2">
+				  <div class="text-base font-semibold text-white">Subtitles</div>
+				  <div class="flex items-center gap-2">
+					<span class="text-sm text-gray-300">Search:</span>
+					<input id="ts-search" type="text" placeholder="..." class="border border-gray-600 bg-gray-700 text-white rounded px-2 py-1 w-32 text-sm" />
+				  </div>
+				  <div class="ml-auto flex items-center gap-2">
+					<button id="ts-prev" class="btn btn-slate text-xs px-2 py-1">‹</button>
+					<button id="ts-nextpage" class="btn btn-slate text-xs px-2 py-1">›</button>
+					<span class="text-xs text-gray-300">Page</span>
+					<input id="ts-page" type="number" min="1" value="${st.page}" class="border border-gray-600 bg-gray-700 text-white rounded px-1 py-1 w-10 text-xs" />
+					<span class="text-xs text-gray-300">/<span id="ts-pages">1</span></span>
+					<select id="ts-size" class="border border-gray-600 bg-gray-700 text-white rounded px-1 py-1 text-xs w-16">
+					  ${[50,100,200,500].map(n=>`<option value="${n}" ${st.size===n?'selected':''}>${n}</option>`).join('')}
+					</select>
+					<label class="inline-flex items-center gap-1">
+					  <input id="ts-follow" type="checkbox" ${st.follow?'checked':''} class="w-3 h-3 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
+					  <span class="text-xs text-gray-300">Follow</span>
+					</label>
+				  </div>
+				</div>
+				<div id="ts-table" class="flex-1 border border-gray-600 rounded overflow-auto bg-gray-900"></div>
+			  </div>
+
+			  <!-- RIGHT: Messages -->
+			  <div class="w-1/3 flex flex-col">
+				<div class="text-base font-semibold text-white mb-2">Results</div>
+				<pre id="ts-messages" class="flex-1 border border-gray-600 rounded p-2 overflow-auto bg-gray-900 text-green-200 text-xs"></pre>
+			  </div>
+			</div>
+		  </div>
+		</div>
+	  `;
+
+	  this.setupTranslateEvents();
+	}
+
+	/* ==============================
+	 * EVENTS (tidak berubah banyak)
+	 * ============================== */
+	setupTranslateEvents() {
+	  if (!this.translate) this.initTranslateState();
+	  const $ = (id)=>document.getElementById(id);
+
+	  const bindVal = (id, key, toNum=false)=>{
+		const el=$(id); if (!el) return;
+		el.addEventListener('input', ()=>{ this.translate[key] = toNum ? Number(el.value) : el.value; });
+	  };
+	  const bindChk = (id, key)=>{
+		const el=$(id); if (!el) return;
+		el.addEventListener('change', ()=>{ this.translate[key] = !!el.checked; });
+	  };
+
+	  bindVal('ts-api','apiKey');
+	  bindVal('ts-batch','batch',true);
+	  bindVal('ts-workers','workers',true);
+	  bindVal('ts-timeout','timeout',true);
+	  bindChk('ts-autosave','autosave');
+	  bindVal('ts-lang','lang');
+	  bindVal('ts-engine','engine');
+	  bindVal('ts-temp','temperature',true);
+	  bindVal('ts-topp','top_p',true);
+	  bindVal('ts-style','style');
+
+	  const applySearch = ()=>{ this.translate.search = $('ts-search').value.trim(); this.filterAndRenderSubs(); };
+	  $('ts-search')?.addEventListener('input', applySearch);
+	  $('ts-size')?.addEventListener('change', ()=>{ this.translate.size = Number($('ts-size').value); this.translate.page=1; this.renderSubsPage(); });
+	  $('ts-page')?.addEventListener('change', ()=>{ this.translate.page = Math.max(1, Number($('ts-page').value||1)); this.renderSubsPage(); });
+	  $('ts-prev')?.addEventListener('click', ()=>{ this.translate.page = Math.max(1, this.translate.page-1); this.renderSubsPage(); });
+	  $('ts-nextpage')?.addEventListener('click', ()=>{ this.translate.page = Math.min(this.totalPages||1, this.translate.page+1); this.renderSubsPage(); });
+	  $('ts-follow')?.addEventListener('change', ()=>{ this.translate.follow = $('ts-follow').checked; });
+
+	  $('ts-load')?.addEventListener('click', ()=> this.promptLoadSRT());
+		$('ts-start')?.addEventListener('click', () => {
+		  this.translate = this.translate || {};
+		  this.translate.runMode = 'start';
+		  this._translateGeneric();
+		});
+
+		$('ts-resume')?.addEventListener('click', () => {
+		  this.translate = this.translate || {};
+		  this.translate.runMode = 'resume';
+		  this._translateGeneric();
+		});
+
+		$('ts-fill')?.addEventListener('click', () => {
+		  this.translate = this.translate || {};
+		  this.translate.runMode = 'fill';
+		  this._translateGeneric();
+		});
+	  $('ts-save')?.addEventListener('click', ()=> this.translateSave());
+	  $('ts-export')?.addEventListener('click', ()=> this.translateExport());
+	  $('ts-stop')?.addEventListener('click', ()=> this.translateStop());
+	  $('ts-next')?.addEventListener('click', ()=> this.loadTab('editing'));
+	  $('ts-clear')?.addEventListener('click', ()=> this.translateClear());
+
+	  this.renderSubsPage();
+	  this.renderMessages();
+	}
+
+	/* ==============================
+	 * LOAD SRT (auto/manual)
+	 * ============================== */
+	async promptLoadSRT() {
+	  const setText = (text, mode) => {
+		this.translate.mode = mode;
+		this.translate.srtText = text;
+		const subs = this.parseSRT(text);
+		this.translate.originalSubs = subs.map(s => ({...s})); // keep original
+		// working copy dengan placeholder trans=''
+		this.translate.subtitles = subs.map(s => ({...s, trans: ''}));
+		this.filterAndRenderSubs();
+		this.updateTranslateProgress();
+		this.showNotification(mode==='auto'?'SRT loaded from session':'Loaded SRT file','success');
+	  };
+
+	  if (this.currentSessionId) {
+		try {
+		  const res = await fetch(`/api/session/${this.currentSessionId}/srt?prefer=original`, { method: 'GET' });
+		  let text = await res.text();
+		  if (!res.ok) throw new Error(text);
+		  try { const obj=JSON.parse(text); if (obj && obj.srt) text = obj.srt; } catch {}
+		  return setText(text,'auto');
+		} catch (e) {
+		  this.showNotification('Backend SRT tidak tersedia, pilih file manual…','warning');
+		}
+	  }
+	  // manual picker
+	  const input = document.createElement('input'); input.type='file'; input.accept='.srt';
+	  input.onchange = async ()=>{ const f=input.files?.[0]; if(!f) return; setText(await f.text(),'manual'); };
+	  input.click();
+	}
+
+	/* ==============================
+	 * TRANSLATE HELPER FUNCTIONS
+	 * ============================== */
+
+	_getIndicesForStart(overwrite = false) {
+	  const st = this.translate;
+	  if (!st?.subtitles) return [];
+	  if (overwrite) return st.subtitles.map(s => s.index);
+	  // default: hanya yang kosong
+	  return st.subtitles.filter(s => !(s.trans || '').trim()).map(s => s.index);
+	}
+
+	_getIndicesForResume() {
+	  const st = this.translate;
+	  if (!st?.subtitles) return [];
+	  const cp = st.checkpoint || 0;
+	  return st.subtitles
+		.filter(s => s.index > cp && !(s.trans || '').trim())
+		.map(s => s.index);
+	}
+
+	_getIndicesForFillMissing() {
+	  const st = this.translate;
+	  if (!st?.subtitles) return [];
+	  return st.subtitles.filter(s => !(s.trans || '').trim()).map(s => s.index);
+	}
+	
+	/* ==============================
+	 * RUN TRANSLATE (ALL / MISSING)
+	 * ============================== */
+	async translateStartAll(){ return this._translateGeneric(false); }
+	async translateMissing(){  return this._translateGeneric(true); }
+
+	// === TAB 2: jalankan translate dengan mode Start / Resume / Fill Missing ===
+	async _translateGeneric() {
+	  // --- state awal & helper kecil ---
+	  if (!this.translate) this.initTranslateState();
+	  const st = this.translate;
+
+	  const $ = (id) => document.getElementById(id);
+	  const btnStart  = $('ts-start');
+	  const btnFill   = $('ts-fill');
+	  const btnStop   = $('ts-stop');
+	  const btnExport = $('ts-export');
+	  const barEl     = $('ts-progressbar');
+	  const labEl     = $('ts-progresslabel');
+
+	  // Ambil parameter UI
+	  const apiKeyEl = $('ts-api');
+	  const batchEl  = $('ts-batch');
+	  const workEl   = $('ts-workers');
+	  const tempEl   = $('ts-temp');
+	  const toppEl   = $('ts-topp');
+	  const langSel  = $('ts-lang');
+	  const styleSel = $('ts-style');
+
+	  // Simpan konfigurasi
+	  st.apiKey      = (apiKeyEl?.value || '').trim();
+	  st.batch       = Number(batchEl?.value || 20);
+	  st.workers     = Number(workEl?.value || 1);
+	  st.temperature = Number(tempEl?.value || 0.1);
+	  st.top_p       = Number(toppEl?.value || 0.3);
+	  st.lang        = (langSel?.value || 'id').toLowerCase();
+	  st.style       = (styleSel?.value || 'dubbing');
+
+	  // Validasi sederhana
+	  if (!this.currentSessionId && !st.srtText) {
+		this.showNotification('Belum ada session & SRT; "Load" SRT dulu atau buat session di Tab 1.', 'error');
+		return;
+	  }
+	  if (!st.apiKey) {
+		this.showNotification('API key kosong. Masukkan API key dahulu.', 'error');
+		return;
+	  }
+	  if (st.running) return;
+
+	  // ----- mode eksekusi: start / resume / fill -----
+	  // set oleh tombol sebelum memanggil _translateGeneric(); default 'start'
+	  const mode = (st.runMode || 'start'); // 'start' | 'start-overwrite' | 'resume' | 'fill'
+
+	  // Helper untuk memilih indeks target
+	  const pickIndices = () => {
+		if (!st?.subtitles) return [];
+		const isEmpty = (s) => !((s.trans || '').trim());
+
+		if (mode === 'resume') {
+		  const cp = st.checkpoint || 0;
+		  return st.subtitles.filter(s => s.index > cp && isEmpty(s)).map(s => s.index);
+		}
+		if (mode === 'fill') {
+		  return st.subtitles.filter(isEmpty).map(s => s.index);
+		}
+		if (mode === 'start-overwrite') {
+		  return st.subtitles.map(s => s.index);
+		}
+		// default 'start' aman: hanya baris kosong
+		return st.subtitles.filter(isEmpty).map(s => s.index);
+	  };
+
+	  // Kunci tombol (Stop tetap aktif)
+	  btnStart?.setAttribute('disabled','disabled');
+	  btnFill?.setAttribute('disabled','disabled');
+	  btnExport?.setAttribute('disabled','disabled');
+	  btnStop?.removeAttribute('disabled');
+
+	  st.running = true;
+
+	  // Tampilkan overlay, tapi biarkan tombol stop tetap bisa diklik (kalau overlay kamu blok klik,
+	  // kamu bisa set CSS overlay pointer-events:none; — tidak saya ubah di sini).
+	  const overlay = this.showLoading('Translating SRT...');
+
+	  // Pastikan SRT ORIGINAL sudah ada (untuk manual mode / untuk enforce prefer=original)
+	  try {
+		if (!st.srtText && this.currentSessionId) {
+		  const resSrt = await fetch(`/api/session/${this.currentSessionId}/srt?prefer=original`);
+		  if (!resSrt.ok) throw new Error('Gagal mengambil SRT session (prefer=original)');
+		  st.srtText      = await resSrt.text();
+		  st.originalSubs = this.parseSRT(st.srtText);
+		  st.subtitles    = st.originalSubs.map(x => ({ ...x })); // reset grid kiri
+		  this._renderTable?.();
+		}
+	  } catch (e) {
+		this.hideLoading();
+		st.running = false;
+		btnStart?.removeAttribute('disabled');
+		btnFill?.removeAttribute('disabled');
+		btnExport?.removeAttribute('disabled');
+		btnStop?.setAttribute('disabled','disabled');
+		this.showNotification(`Load SRT gagal: ${e.message || e}`, 'error');
+		return;
+	  }
+
+	  // Tentukan baris mana yang harus diterjemahkan
+	  let indices = pickIndices();
+	  indices = [...new Set(indices)].sort((a,b)=>a-b); // unik & urut
+
+	  if (!indices.length) {
+		// Sudah selesai semua atau tidak ada yang perlu diterjemahkan
+		this.hideLoading();
+		st.running = false;
+		btnStart?.removeAttribute('disabled');
+		btnFill?.removeAttribute('disabled');
+		btnExport?.removeAttribute('disabled');
+		btnStop?.setAttribute('disabled','disabled');
+		this.showNotification('Tidak ada baris yang perlu diterjemahkan.', 'success');
+		return;
+	  }
+
+	  // Build form payload
+	  const form = new URLSearchParams({
+		api_key: st.apiKey,
+		target_lang: st.lang,
+		engine: 'llm',
+		temperature: String(st.temperature),
+		top_p: String(st.top_p),
+		batch: String(st.batch),
+		workers: String(st.workers),
+		timeout: '120',
+		autosave: 'true',
+		mode: st.style === 'dubbing' ? 'dubbing' : 'normal',
+		srt_text: st.srtText,         // kirim sumber ORIGINAL
+		prefer: 'original',
+		only_indices: indices.join(','), // ← HANYA baris target
+	  });
+
+	  // Abortable
+	  const ac = new AbortController();
+	  st.abort = () => ac.abort();
+
+	  // Progress bar helper
+	  const total = indices.length;
+	  let done = 0;
+	  const updatePB = () => {
+		const pct = Math.round((done / total) * 100);
+		if (barEl) barEl.style.width = `${pct}%`;
+		if (labEl) labEl.textContent = `${pct}% (${done}/${total})`;
+	  };
+	  updatePB();
+
+	  try {
+		// Pilih endpoint: pakai /api/translate untuk manual (tanpa session)
+		const resp = await fetch(
+		  this.currentSessionId
+			? `/api/session/${this.currentSessionId}/translate`
+			: `/api/translate`,
+		  {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+			body: form,
+			signal: ac.signal
+		  }
+		);
+
+		const raw = await resp.text();
+		if (!resp.ok) throw new Error(raw || `HTTP ${resp.status}`);
+
+		// Normalisasi respons: {results: [...]} ATAU SRT utuh
+		let results = null;
+		let json = null;
+		try { json = JSON.parse(raw); } catch {}
+		if (json && Array.isArray(json.results)) {
+		  results = json.results;
+		} else {
+		  const outSrt =
+			json?.data?.translated_srt ||
+			json?.translated_srt ||
+			json?.srt ||
+			raw;
+
+		  // Parse SRT → list hasil
+		  const parsed = this.parseSRT(outSrt); // [{index,start,end,text}]
+		  results = parsed.map(p => {
+			const idxNo = Number(p.index);
+			const ts    = `${p.start} --> ${p.end}`;
+			// cocokan ke sumber
+			let src = st.subtitles.find(s => s.index === idxNo);
+			if (!src) src = st.subtitles.find(s => (`${s.start} --> ${s.end}`) === ts);
+			return {
+			  index: idxNo,
+			  timestamp: ts,
+			  original_text: src ? (src.text || '') : '',
+			  translation: (p.text || '').trim()
+			};
+		  });
+		}
+		if (!Array.isArray(results)) throw new Error('Tidak ada hasil terjemahan.');
+
+		// Tulis hasil per-item (realtime di panel kanan & grid kiri)
+		st.doneSet = st.doneSet || new Set();
+		for (const item of results) {
+		  // Cari index di grid
+		  let idx = -1;
+		  if (Number.isInteger(item.index)) {
+			idx = st.subtitles.findIndex(s => s.index === item.index);
+		  }
+		  if (idx < 0 && item.timestamp) {
+			idx = st.subtitles.findIndex(s => `${s.start} --> ${s.end}` === item.timestamp);
+		  }
+		  if (idx < 0 && item.original_text) {
+			idx = st.subtitles.findIndex(s => (s.text || '') === item.original_text);
+		  }
+
+		  const trans = (item.translation ?? '').trim();
+		  if (idx >= 0) {
+			// hanya isi target; jangan menimpa yang sudah ada kecuali mode 'start-overwrite'
+			const already = (st.subtitles[idx].trans || '').trim();
+			const canWrite = (mode === 'start-overwrite') || !already;
+			if (canWrite) {
+			  st.subtitles[idx].trans = trans;
+			  this._renderTableRow?.(idx);
+			}
+
+			// Update checkpoint & doneSet untuk Resume
+			st.doneSet.add(st.subtitles[idx].index);
+			st.checkpoint = Math.max(st.checkpoint || 0, st.subtitles[idx].index);
+		  }
+
+		  // kirim ke panel kanan (biar “jalan” per baris)
+		  this.appendMessage?.({ event: 'translate:progress', payload: item });
+
+		  done += 1;
+		  updatePB();
+		}
+
+		this._lastTranslatedAt = Date.now();
+		this.showNotification('Translate selesai.', 'success');
+
+	  } catch (err) {
+		this.appendMessage?.({ event: 'translate:error', payload: String(err) });
+		this.showNotification(`Translate gagal: ${err.message || err}`, 'error');
+
+	  } finally {
+		st.running = false;
+		this.hideLoading();
+		// Pulihkan tombol
+		btnStart?.removeAttribute('disabled');
+		btnFill?.removeAttribute('disabled');
+		btnExport?.removeAttribute('disabled');
+		btnStop?.setAttribute('disabled','disabled');
+	  }
+	}
+
+	// === Export hasil translate menjadi .srt (download) ===
+	async _exportSRT() {
+	  if (!this.translate) this.initTranslateState();
+	  const st = this.translate;
+	  if (!st.subtitles?.length) {
+		this.showNotification('Tidak ada data subtitle untuk diekspor.', 'error');
+		return;
+	  }
+
+	  const lines = [];
+	  for (const it of st.subtitles) {
+		const out = (it.trans ?? '').trim(); // biarkan kosong kalau belum diterjemahkan
+		lines.push(String(it.index));
+		lines.push(`${it.start} --> ${it.end}`);
+		lines.push(out);
+		lines.push(''); // pemisah
+	  }
+	  const srtOut = lines.join('\r\n');
+
+	  const blob = new Blob([srtOut], { type: 'text/plain;charset=utf-8' });
+	  const url  = URL.createObjectURL(blob);
+	  const a    = document.createElement('a');
+	  a.href     = url;
+	  a.download = 'translated.srt';
+	  document.body.appendChild(a);
+	  a.click();
+	  a.remove();
+	  URL.revokeObjectURL(url);
+
+	  this.showNotification('Export SRT selesai (download).', 'success');
+	}
+
+	// --- PATCH: helper untuk refresh baris saat streaming progress ---
+	// Versi sederhana: render ulang halaman aktif (aman & cepat dikerjakan).
+	_renderTableRow(idx) {
+	  // Kalau nanti mau super-presisi per baris, kita bisa kasih id pada setiap row
+	  // lalu update innerHTML row tsb. Untuk sekarang cukup render ulang halaman.
+	  if (typeof this.renderSubsPage === 'function') {
+		this.renderSubsPage();
+	  }
+	  if (typeof this.updateTranslateProgress === 'function') {
+		this.updateTranslateProgress();
+	  }
+	  if (typeof this.renderMessages === 'function') {
+		this.renderMessages();
+	  }
+	}
+
+	// (opsional) kecilkan jejak UI refresh total
+	_renderTable() { 
+	  // alias agar panggilan lama ke _renderTable tidak error
+	  if (typeof this.renderSubsPage === 'function') this.renderSubsPage();
+	}
+
+
+	/* ==============================
+	 * MERGE: translated SRT -> subtitles[].trans
+	 * ============================== */
+	mergeTranslatedSRT(translatedText, partial=false) {
+	  const parsed = this.parseSRT(translatedText);   // sama struktur: index/start/end/text
+	  // buat map index -> text
+	  const tmap = new Map(parsed.map(p => [Number(p.index), (p.text||'').trim()]));
+	  // merge
+	  this.translate.subtitles = this.translate.subtitles.map(s => {
+		const t = tmap.get(Number(s.index));
+		if (t && (!partial || !s.trans)) {
+		  return {...s, trans: t};
+		}
+		return s;
+	  });
+	  this.filterAndRenderSubs();
+	  this.renderMessages(); // refresh JSON kanan
+	}
+
+	/* ==============================
+	 * PROGRESS BAR
+	 * ============================== */
+	updateTranslateProgress() {
+	  const total = this.translate.subtitles.length || 0;
+	  const done  = this.translate.subtitles.filter(x => x.trans && x.trans.trim()).length;
+	  const pct = total ? Math.round(done*100/total) : 0;
+	  const bar = document.getElementById('ts-progressbar');
+	  const lab = document.getElementById('ts-progresslabel');
+	  if (bar) bar.style.width = pct + '%';
+	  if (lab) lab.textContent = `${pct}% (${done}/${total})`;
+	}
+
+	/* ==============================
+	 * SAVE / EXPORT / STOP / CLEAR
+	 * ============================== */
+	translateSave(){
+	  // rakit SRT dari state (pakai trans kalau ada, fallback ke original)
+	  const srt = this.translate.subtitles.map(s => {
+		const txt = (s.trans && s.trans.trim()) ? s.trans : (s.text || "");
+		return `${s.index}\n${s.start} --> ${s.end}\n${txt}\n`;
+	  }).join('\n');
+
+	  // Kalau ada session → simpan ke workdir lewat backend
+	  if (this.currentSessionId) {
+		const body = new URLSearchParams({
+		  srt_text: srt,
+		  filename: "translated_latest.srt"
+		});
+		this.showLoading("Saving to workspace...");
+		fetch(`/api/session/${this.currentSessionId}/save-srt`, {
+		  method: "POST",
+		  headers: {"Content-Type":"application/x-www-form-urlencoded"},
+		  body
+		})
+		.then(async (res) => {
+		  const txt = await res.text();
+		  if (!res.ok) throw new Error(txt);
+		  const data = JSON.parse(txt);
+		  this.showNotification(`Saved: ${data.path}`, "success");
+		})
+		.catch(err => {
+		  this.showNotification(`Save failed: ${err}`, "error");
+		})
+		.finally(()=> this.hideLoading());
+		return;
+	  }
+
+	  // Tanpa session → fallback download lokal
+	  const blob = new Blob([srt], {type:'text/plain;charset=utf-8'});
+	  const a = document.createElement('a');
+	  a.href = URL.createObjectURL(blob);
+	  a.download = 'translated.srt';
+	  a.click();
+	  URL.revokeObjectURL(a.href);
+	}
+	
+	translateExport() {
+	  // rakit SRT dari state: pakai terjemahan jika ada, fallback ke original
+	  const srt = (this.translate.subtitles || []).map(s => {
+		const txt = (s.trans && s.trans.trim()) ? s.trans : (s.text || "");
+		return `${s.index}\n${s.start} --> ${s.end}\n${txt}\n`;
+	  }).join('\n');
+
+	  if (this.currentSessionId) {
+		// simpan ke workspace session
+		const body = new URLSearchParams({
+		  srt_text: srt,
+		  filename: "translated_export.srt"
+		});
+		this.showNotification("Saving SRT to workspace…", "info");
+		fetch(`/api/session/${this.currentSessionId}/save-srt`, {
+		  method: "POST",
+		  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		  body
+		})
+		.then(async r => {
+		  const t = await r.text();
+		  if (!r.ok) throw new Error(t);
+		  const data = JSON.parse(t);
+		  this.showNotification(`Exported: ${data.path}`, "success");
+		})
+		.catch(err => this.showNotification(`Export failed: ${err}`, "error"));
+		return;
+	  }
+
+	  // tanpa session → download lokal
+	  const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
+	  const a = document.createElement("a");
+	  a.href = URL.createObjectURL(blob);
+	  a.download = "translated.srt";
+	  a.click();
+	  URL.revokeObjectURL(a.href);
+	}
+	
+	translateStop() {
+	  try { if (this.translate?.abort) this.translate.abort(); } catch (e) {}
+	}
+	translateClear(){ this.initTranslateState(); this.loadTab('translate'); }
+
+	/* ==============================
+	 * VIEWER & MESSAGES
+	 * ============================== */
+	filterAndRenderSubs(){
+	  const q=(this.translate.search||'').toLowerCase();
+	  const src=this.translate.subtitles||[];
+	  this.translate.filtered = q ? src.filter(x=> ((x.text||'') + ' ' + (x.trans||'')).toLowerCase().includes(q)) : src.slice();
+	  this.translate.page=1; this.renderSubsPage();
+	}
+	/* ==============================
+	 * RENDER SUBS PAGE (1 BARIS untuk subtitle)
+	 * ============================== */
+	renderSubsPage(){
+	  const st=this.translate, table=document.getElementById('ts-table'), pagesEl=document.getElementById('ts-pages');
+	  if (!table) return;
+	  const arr=st.filtered||[]; this.totalPages=Math.max(1, Math.ceil(arr.length/st.size));
+	  if (pagesEl) pagesEl.textContent=String(this.totalPages);
+	  const start=(st.page-1)*st.size;
+	  
+	  // HEADER tabel
+	  const header = `
+		<div class="grid grid-cols-[60px,100px,100px,1fr,1fr] gap-2 px-3 py-2 bg-gray-800 border-b border-gray-600 sticky top-0 text-sm font-semibold text-gray-300">
+		  <div>#</div>
+		  <div>Start</div>
+		  <div>End</div>
+		  <div>Original</div>
+		  <div>Translation</div>
+		</div>
+	  `;
+	  
+	  // ROWS - 1 BARIS per subtitle
+	  const rows = arr.slice(start, start+st.size).map(s=>`
+		<div class="grid grid-cols-[60px,100px,100px,1fr,1fr] gap-2 px-3 py-2 border-b border-gray-700 hover:bg-gray-800 text-sm">
+		  <div class="text-gray-400 font-mono">${s.index}</div>
+		  <div class="text-gray-300 font-mono text-xs">${s.start}</div>
+		  <div class="text-gray-300 font-mono text-xs">${s.end}</div>
+		  <div class="text-gray-300 break-words">${this.escapeHtml(s.text||'')}</div>
+		  <div class="text-green-400 break-words font-medium">${this.escapeHtml(s.trans||'')}</div>
+		</div>
+	  `).join('');
+	  
+	  table.innerHTML = header + (rows || '<div class="p-4 text-center text-gray-500">No subtitles found</div>');
+	  
+	  const pg=document.getElementById('ts-page'); 
+	  if (pg) pg.value=String(st.page);
+	  
+	  if (st.follow && rows) {
+		table.scrollTop = table.scrollHeight;
+	  }
+	}
+	buildMessagesArray(){
+	  return (this.translate.subtitles||[]).map(s=>({
+		index: s.index,
+		timestamp: `${s.start} --> ${s.end}`,
+		original_text: s.text || "",
+		translation: s.trans || ""
+	  }));
+	}
+	renderMessages(){
+	  const el=document.getElementById('ts-messages');
+	  if (!el) return;
+	  el.textContent = JSON.stringify(this.buildMessagesArray(), null, 2);
+	}
+
+/* ===========================
+ *  TAB 3 — EDITING (FULL BLOCK)
+ *  letakkan semua method ini DI DALAM class DracinApp
+ * =========================== */
+/* ===========================
+ *  TAB 3 — EDITING (FULL BLOCK)
+ *  (Semua method di bawah ini berada DI DALAM class DracinApp)
+ * =========================== */
+
+initEditingState() {
+  this.editing = {
+    sessionId: this.currentSessionId || "",
+    rows: [],            // [{index,start,end,translation,gender,speaker,notes}]
+    filtered: [],
+    follow: true,
+    genderFilter: "all",
+    speakerFilter: "",
+    search: "",
+    shown: 0,
+    total: 0,
+    videoUrl: "",
+    playingRowIndex: null,
+    playTimer: null
+  };
+}
+
+async loadEditingTab() {
+  if (!this.editing) this.initEditingState();
+  const st = this.editing;
+
+  const tab = document.getElementById('editing');
+  if (!tab) return;
+
+  tab.innerHTML = `
+    <div id="tab-editing" class="bg-gray-800 rounded-lg p-4">
+      <h2 class="text-xl font-bold mb-4 text-yellow-400">
+        <i class="fas fa-edit mr-2"></i>Editing
+      </h2>
+
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <input id="ed-session-input" class="bg-gray-700 border border-gray-600 text-white px-3 py-1 rounded w-64"
+               placeholder="Paste / ketik Session ID…" />
+        <button id="ed-load-session" class="btn btn-slate px-3 py-1">Load Session</button>
+
+        <select id="ed-session-select" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
+          <option value="">— pilih session —</option>
+        </select>
+
+        <span class="mx-2 text-gray-400">|</span>
+
+			<select id="ed-gender" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
+			  <option value="all">All genders</option>
+			  <option value="male">male</option>
+			  <option value="female">female</option>
+			  <option value="unknown">unknown</option>
+			</select>
+
+			<select id="ed-speaker-select" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
+			  <option value="all">All speakers</option>
+			</select>
+
+			<input id="ed-search" class="bg-gray-700 border border-gray-600 text-white px-3 py-1 rounded w-52"
+				   placeholder="Search text…" />
+
+
+        <label class="ml-2 inline-flex items-center gap-2 text-gray-300">
+          <input id="ed-follow" type="checkbox" class="w-4 h-4" checked />
+          Follow
+        </label>
+
+        <div class="ml-auto flex items-center gap-2">
+          <button id="ed-save" class="btn btn-primary px-3 py-1">Save</button>
+          <button id="ed-exp-male" class="btn btn-slate px-3 py-1">Export Male SRT</button>
+          <button id="ed-exp-female" class="btn btn-slate px-3 py-1">Export Female SRT</button>
+          <button id="ed-exp-unk" class="btn btn-slate px-3 py-1">Export Unknown SRT</button>
+          <button id="ed-exp-all" class="btn btn-slate px-3 py-1">Export All (zip)</button>
+        </div>
+      </div>
+
+      <div id="ed-session-info" class="text-sm text-gray-400 mb-3">No session loaded.</div>
+
+      <div class="flex gap-4">
+        <div class="bg-black rounded overflow-hidden" style="width:38%;">
+          <video id="ed-video" class="w-full h-[66vh] object-contain bg-black" controls playsinline></video>
+        </div>
+
+        <div class="flex-1 flex flex-col">
+          <div class="text-sm text-gray-300 mb-2">
+            <span id="ed-counter">0 shown / 0 total</span>
+          </div>
+          <div id="ed-list" class="flex-1 overflow-auto bg-gray-900 border border-gray-700 rounded"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  this._edBindEvents();
+  await this._edPopulateSessionSelector();
+
+  if (!st.sessionId && this.currentSessionId) st.sessionId = this.currentSessionId;
+  if (st.sessionId) {
+    const inp = document.getElementById('ed-session-input');
+    if (inp) inp.value = st.sessionId;
+    await this._edLoad(st.sessionId);
+  }
+}
+
+_edPopulateSpeakerFilter(list) {
+  const sel = document.getElementById('ed-speaker-select');
+  if (!sel) return;
+  const current = this.editing.speakerFilter || 'all';
+  sel.innerHTML = `<option value="all">All speakers</option>` +
+    (list || []).map(s => `<option value="${s}">${s}</option>`).join('');
+  sel.value = current === 'all' ? 'all' : (list.includes(current) ? current : 'all');
+}
+
+_edBindEvents() {
+  const $ = id => document.getElementById(id);
+  const ed = this.editing;
+
+  $('ed-load-session')?.addEventListener('click', async () => {
+    const id = $('ed-session-input')?.value.trim() || $('ed-session-select')?.value.trim();
+    if (!id) return this.showNotification('Isi/pilih Session ID dulu.', 'warning');
+    await this._edLoad(id);
+  });
+
+  $('ed-session-select')?.addEventListener('change', async (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    $('ed-session-input').value = id;
+    await this._edLoad(id);
+  });
+
+  $('ed-gender')?.addEventListener('change', () => {
+    ed.genderFilter = $('ed-gender').value; this._edFilterRender();
+  });
+const spkSel = document.getElementById('ed-speaker-select');
+spkSel?.addEventListener('change', () => {
+  this.editing.speakerFilter = spkSel.value; // 'all' atau 'SPEAKER_xx'
+  this._edFilterRender();
+
+});
+  $('ed-search')?.addEventListener('input', () => {
+    ed.search = $('ed-search').value.trim(); this._edFilterRender();
+  });
+  $('ed-follow')?.addEventListener('change', () => { ed.follow = $('ed-follow').checked; });
+
+  $('ed-save')?.addEventListener('click', () => this._edSave());
+  $('ed-exp-male')?.addEventListener('click', () => this._edExport('male'));
+  $('ed-exp-female')?.addEventListener('click', () => this._edExport('female'));
+  $('ed-exp-unk')?.addEventListener('click', () => this._edExport('unknown'));
+  $('ed-exp-all')?.addEventListener('click', () => this._edExport('all'));
+
+  const v = $('ed-video');
+  v?.addEventListener('timeupdate', () => this._edOnVideoTime(v.currentTime));
+}
+_edPopulateSpeakerFilter(list) {
+  const sel = document.getElementById('ed-speaker-select');
+  if (!sel) return;
+  const current = this.editing.speakerFilter || 'all';
+  sel.innerHTML = `<option value="all">All speakers</option>` +
+    (list || []).map(s => `<option value="${s}">${s}</option>`).join('');
+  sel.value = current === 'all' ? 'all' : (list.includes(current) ? current : 'all');
+}
+
+async _edPopulateSessionSelector() {
+  try {
+    const res = await fetch('/api/sessions');
+    if (!res.ok) return;
+    const list = await res.json(); // [{id,...}]
+    const sel = document.getElementById('ed-session-select');
+    if (!sel) return;
+    sel.innerHTML = `<option value="">— pilih session —</option>` +
+      list.map(s => `<option value="${s.id}">${s.id}</option>`).join('');
+  } catch {}
+}
+
+async _edLoad(sessionId) {
+  const ed = this.editing;
+  this.showLoading('Loading editing data…');
+  try {
+    const url = `/api/session/${sessionId}/editing`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+
+    const data = await res.json(); // {video, rows:[...]}
+    ed.sessionId = sessionId;
+    this.currentSessionId = sessionId;
+
+    ed.rows = (data.rows || []).map(r => ({
+      index: r.index,
+      start: r.start,
+      end: r.end,
+      translation: r.translation || "",
+      speaker: r.speaker || "",
+      gender: (r.gender || "unknown").toLowerCase(),
+      notes: r.notes || ""
+	  
+    }));
+	ed.speakers = Array.isArray(data.speakers) ? data.speakers : [];
+	this._edPopulateSpeakerFilter(ed.speakers);
+    ed.videoUrl = `/api/session/${sessionId}/video`;
+
+    const info = document.getElementById('ed-session-info');
+    if (info) info.textContent = `Session: ${sessionId}`;
+    const video = document.getElementById('ed-video');
+    if (video) { video.src = ed.videoUrl; }
+    this._edFilterRender();
+    this.showNotification('Editing data loaded.', 'success');
+  } catch (e) {
+    this.showNotification(`Load editing gagal: ${e.message || e}`, 'error');
+  } finally {
+    this.hideLoading();
+  }
+}
+
+_edFilterRender() {
+  const ed = this.editing;
+  const term = (ed.search || "").toLowerCase();
+  const gf = ed.genderFilter;
+  const sf = ed.speakerFilter || 'all';
+
+  ed.filtered = ed.rows.filter(r => {
+    if (gf !== 'all' && (r.gender || 'unknown') !== gf) return false;
+    if (sf !== 'all' && (r.speaker || '') !== sf) return false;
+    if (term) {
+      const hay = `${r.translation || ""}`.toLowerCase();
+      if (!hay.includes(term)) return false;
     }
+    return true;
+  });
 
-    renderEditingTab() {
-        const tabContent = document.getElementById('editing');
-        if (!tabContent) return;
+  ed.total = ed.rows.length;
+  ed.shown = ed.filtered.length;
 
-        tabContent.innerHTML = `
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-2xl font-bold mb-6 text-yellow-400">
-                    <i class="fas fa-edit mr-2"></i>Editing
-                </h2>
+  this._edRenderList();
+  const c = document.getElementById('ed-counter');
+  if (c) c.textContent = `${ed.shown} shown / ${ed.total} total`;
+}
 
-                <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
-                    <!-- Left Column: Session List -->
-                    <div class="xl:col-span-1">
-                        <div class="bg-gray-700 rounded-lg p-4">
-                            <h3 class="text-lg font-semibold mb-3 text-white">
-                                <i class="fas fa-folder mr-2"></i>Sessions
-                            </h3>
-                            <div id="session-list" class="space-y-2 max-h-60 overflow-y-auto">
-                                <div class="text-gray-400 text-center py-4">Loading sessions...</div>
-                            </div>
-                            <button id="refresh-sessions" class="w-full mt-3 bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded flex items-center justify-center transition-colors">
-                                <i class="fas fa-sync-alt mr-2"></i>Refresh Sessions
-                            </button>
-                        </div>
-                    </div>
 
-                    <!-- Middle Column: Editing Interface -->
-                    <div class="xl:col-span-3">
-                        <div class="bg-gray-700 rounded-lg p-4">
-                            <h3 class="text-lg font-semibold mb-3 text-white">
-                                <i class="fas fa-table mr-2"></i>Subtitle Editor
-                            </h3>
-                            <div class="overflow-x-auto">
-                                <table class="w-full">
-                                    <thead>
-                                        <tr class="bg-gray-600">
-                                            <th class="px-3 py-2 text-left text-gray-300">#</th>
-                                            <th class="px-3 py-2 text-left text-gray-300">Start</th>
-                                            <th class="px-3 py-2 text-left text-gray-300">End</th>
-                                            <th class="px-3 py-2 text-left text-gray-300">Speaker</th>
-                                            <th class="px-3 py-2 text-left text-gray-300">Gender</th>
-                                            <th class="px-3 py-2 text-left text-gray-300">Text</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="editing-table-body">
-                                        <tr>
-                                            <td colspan="6" class="px-3 py-4 text-center text-gray-400">
-                                                Select a session to see entries
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+_edRenderList() {
+  const wrap = document.getElementById('ed-list');
+  const ed = this.editing;
+  if (!wrap) return;
 
-        this.setupEditingEvents();
-        this.loadSessionList();
+  if (!ed.filtered.length) {
+    wrap.innerHTML = `<div class="p-6 text-gray-400">No rows.</div>`;
+    return;
+  }
+
+  const esc = s => (this.escapeHtml ? this.escapeHtml(s || '') :
+    String(s||'').replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+
+  wrap.innerHTML = ed.filtered.map((r) => `
+    <div class="border-b border-gray-800 p-2 hover:bg-gray-800" data-idx="${r.index}" id="row-${r.index}">
+      <div class="flex items-center gap-3 mb-2 text-gray-300 text-sm">
+        <div class="w-14 text-gray-400">#${r.index}</div>
+        <div class="w-44">
+          <span class="px-2 py-0.5 bg-gray-700 rounded">${r.start}</span>
+          <span class="mx-1 text-gray-500">→</span>
+          <span class="px-2 py-0.5 bg-gray-700 rounded">${r.end}</span>
+        </div>
+
+        <select class="ed-gender bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs">
+          <option value="male" ${r.gender==='male'?'selected':''}>male</option>
+          <option value="female" ${r.gender==='female'?'selected':''}>female</option>
+          <option value="unknown" ${r.gender==='unknown'?'selected':''}>unknown</option>
+        </select>
+
+        <input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-40"
+               value="${esc(r.speaker)}" placeholder="SPEAKER_*"/>
+
+        <button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
+      </div>
+
+      <textarea class="ed-text w-full bg-gray-800 border border-gray-700 text-white rounded p-2 text-sm"
+                rows="2" placeholder="Translation…">${esc(r.translation)}</textarea>
+    </div>
+  `).join('');
+
+  wrap.querySelectorAll('.ed-text').forEach((ta) => {
+    ta.addEventListener('input', (e) => {
+      const rowEl = e.target.closest('[data-idx]');
+      const idx = Number(rowEl.getAttribute('data-idx'));
+      const row = this.editing.rows.find(x => x.index === idx);
+      if (row) row.translation = e.target.value;
+    });
+  });
+
+  wrap.querySelectorAll('.ed-gender').forEach((sel) => {
+    sel.addEventListener('change', (e) => {
+      const rowEl = e.target.closest('[data-idx]');
+      const idx = Number(rowEl.getAttribute('data-idx'));
+      const row = this.editing.rows.find(x => x.index === idx);
+      if (row) row.gender = e.target.value;
+    });
+  });
+
+  wrap.querySelectorAll('.ed-speaker').forEach((inp) => {
+    inp.addEventListener('input', (e) => {
+      const rowEl = e.target.closest('[data-idx]');
+      const idx = Number(rowEl.getAttribute('data-idx'));
+      const row = this.editing.rows.find(x => x.index === idx);
+      if (row) row.speaker = e.target.value;
+    });
+  });
+
+  wrap.querySelectorAll('.ed-play').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const rowEl = e.target.closest('[data-idx]');
+      this._edSeekToRow(Number(rowEl.getAttribute('data-idx')), true);
+    });
+  });
+
+  wrap.querySelectorAll('[data-idx]').forEach((rowEl) => {
+    rowEl.addEventListener('dblclick', () => {
+      this._edSeekToRow(Number(rowEl.getAttribute('data-idx')), true);
+    });
+  });
+}
+
+_edSeekToRow(idx, autoplay=false) {
+  const row = this.editing.rows.find(x => x.index === idx);
+  const v = document.getElementById('ed-video');
+  if (!row || !v) return;
+
+  const toSec = (ts) => {
+    const m = ts.match(/(\d\d):(\d\d):(\d\d),(\d\d\d)/);
+    if (!m) return 0;
+    return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+m[4])/1000;
+  };
+
+  const start = Math.max(0, toSec(row.start) + 0.01);
+  const end   = toSec(row.end);
+
+  // stop previous guard (if any)
+  if (this._segGuard) { clearInterval(this._segGuard); this._segGuard = null; }
+
+  v.currentTime = start;
+  if (autoplay) v.play();
+
+  // guard: pause at end
+  this._segGuard = setInterval(() => {
+    if (v.currentTime >= end - 0.01) {
+      v.pause();
+      clearInterval(this._segGuard);
+      this._segGuard = null;
     }
+  }, 50);
 
-    setupEditingEvents() {
-        const refreshBtn = document.getElementById('refresh-sessions');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                this.loadSessionList();
-            });
-        }
-    }
+  // highlight immediately
+  this._edHighlight(idx);
+}
+
+_edRebuildSpeakerFilterOptions() {
+  const sel = document.getElementById('ed-speaker');
+  if (!sel) return;
+  const speakers = new Set(
+    (this.editing.rows || [])
+      .map(r => (r.speaker || '').trim())
+      .filter(Boolean)
+  );
+  sel.innerHTML = `<option value="">All speakers</option>` +
+    [...speakers].sort().map(s => `<option value="${this.escapeHtml(s)}">${this.escapeHtml(s)}</option>`).join('');
+
+  // when user changes selection, filter like gender
+  sel.onchange = () => { 
+    this.editing.speakerFilter = sel.value.trim().toLowerCase(); 
+    this._edFilterRender(); 
+  };
+}
+
+
+_edOnVideoTime(cur) {
+  const toSec = (ts) => {
+    const m = ts.match(/(\d\d):(\d\d):(\d\d),(\d\d\d)/);
+    if (!m) return 0;
+    return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+m[4])/1000;
+  };
+  const ed = this.editing;
+  const hit = ed.rows.find(r => cur >= toSec(r.start) && cur <= toSec(r.end));
+  if (hit) this._edHighlight(hit.index, ed.follow);
+}
+
+_edHighlight(idx, scrollIntoView=false) {
+  const prevSel = (this.editing.playingRowIndex != null)
+    ? document.getElementById(`row-${this.editing.playingRowIndex}`) : null;
+  if (prevSel) prevSel.classList.remove('ring','ring-blue-400');
+
+  this.editing.playingRowIndex = idx;
+  const el = document.getElementById(`row-${idx}`);
+  if (el) {
+    el.classList.add('ring','ring-blue-400');
+    if (scrollIntoView) el.scrollIntoView({block:'center', behavior:'smooth'});
+  }
+}
+
+async _edSave() {
+  const ed = this.editing;
+  if (!ed.sessionId) return this.showNotification('No session.', 'warning');
+  try {
+    this.showLoading('Saving editing…');
+    const res = await fetch(`/api/session/${ed.sessionId}/editing`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ rows: ed.rows })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    this.showNotification('Saved.', 'success');
+  } catch (e) {
+    this.showNotification(`Save failed: ${e.message || e}`, 'error');
+  } finally {
+    this.hideLoading();
+  }
+}
+
+async _edExport(mode) {
+  const ed = this.editing;
+  if (!ed.sessionId) return this.showNotification('No session.', 'warning');
+  try {
+    this.showLoading('Exporting…');
+    const res = await fetch(`/api/session/${ed.sessionId}/editing/export`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ mode, reindex: true })
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const disp = res.headers.get('Content-Disposition') || '';
+    let fname = 'export.srt';
+    const m = disp.match(/filename="?([^"]+)"?/i);
+    if (m) fname = m[1];
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+
+    this.showNotification('Export done.', 'success');
+  } catch (e) {
+    this.showNotification(`Export failed: ${e.message || e}`, 'error');
+  } finally {
+    this.hideLoading();
+  }
+}
+
+
 
     // ============================
     // TAB 4: TTS EXPORT

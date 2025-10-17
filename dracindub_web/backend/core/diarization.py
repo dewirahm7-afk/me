@@ -115,7 +115,7 @@ class DiarizationEngine:
                 male_ref_arg = Path(male_ref_wav).name
                 female_ref_arg = Path(female_ref_wav).name
 
-                top_n = int(config.get("top_n", 5))
+                top_n = int(config.get("top_n", 6))
                 hf_token = (config.get("hf_token") or "").strip()
                 use_gpu = bool(config.get("use_gpu", True))
 

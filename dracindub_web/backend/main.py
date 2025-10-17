@@ -1,5 +1,4 @@
 # backend/main.py
-import os
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -7,7 +6,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pathlib import Path
-
+import sys, os
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # <repo root>
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 # Import managers first
 from core.session_manager import session_manager
 from core.processor import processing_manager

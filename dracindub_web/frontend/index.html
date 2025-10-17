@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DracinDub Web - Auto Dubbing Studio</title>
+    <title>Dewi R7 - Auto Dubbing Studio</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -43,6 +43,30 @@
         .btn-slate:hover{background:#f3f4f6}
         .btn-danger{background:#dc2626;color:#fff}
         .btn-danger:hover{background:#b91c1c}
+		/* Layout 2 kolom */
+		.ed-grid{
+		  display:grid;
+		  grid-template-columns: minmax(260px, 36vw) 1fr;
+		  gap: 16px;
+		  align-items:start;
+		}
+		@media (max-width: 1100px){
+		  .ed-grid{ grid-template-columns: 1fr; }
+		}
+		.ed-video{ aspect-ratio: 9/16; width:100%; max-width:520px; border-radius:10px; }
+		.ed-list{ max-height: calc(100vh - 220px); overflow:auto; }
+		.ed-row{
+		  border:1px solid #2a2f3a; border-radius:10px; padding:10px; margin-bottom:10px;
+		  background:#111827;
+		}
+		.ed-row.live{ outline:2px solid #60a5fa; }
+		.ed-time{ display:flex; gap:8px; align-items:center; font-family:ui-monospace,monospace; opacity:.85 }
+		.ed-time .arrow{ opacity:.6 }
+		.ed-meta{ display:flex; gap:8px; align-items:center; margin:6px 0; }
+		.ed-meta .ed-gender, .ed-meta .ed-speaker{ background:#0b1220; border:1px solid #2a2f3a; color:#d1d5db; border-radius:8px; padding:6px 8px; }
+		.ed-meta .ed-play{ padding:6px 8px; border-radius:8px; }
+		.ed-trans{ width:100%; min-height:60px; background:#0b1220; border:1px solid #2a2f3a; color:#f3f4f6; border-radius:8px; padding:8px; }
+
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -128,18 +152,45 @@
         </div>
 
         <!-- Editing Tab -->
-        <div id="editing" class="tab-content">
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h2 class="text-2xl font-bold mb-6 text-yellow-400">
-                    <i class="fas fa-edit mr-2"></i>Editing
-                </h2>
-                <div class="text-center py-12">
-                    <div class="loading-spinner mx-auto mb-4"></div>
-                    <p class="text-gray-400">Loading Editing tab...</p>
-                </div>
-            </div>
-        </div>
+		<div id="editing" class="tab-content">
+			<!-- Toolbar -->
+			<div class="ed-toolbar">
+			  <input id="ed-session-id" class="ed-sid" placeholder="Session ID..." />
+			  <button id="ed-load-session">Load Session</button>
 
+			  <select id="ed-gender">
+				<option value="all">All genders</option>
+				<option value="male">Male</option>
+				<option value="female">Female</option>
+				<option value="unknown">Unknown</option>
+			  </select>
+
+			  <select id="ed-speaker"><!-- filled by JS --></select>
+			  <input id="ed-search" placeholder="Search text..." />
+			  <label><input type="checkbox" id="ed-follow" checked> Follow</label>
+
+			  <button id="ed-save">Save</button>
+			  <button id="ed-exp-m">Export Male SRT</button>
+			  <button id="ed-exp-f">Export Female SRT</button>
+			  <button id="ed-exp-u">Export Unknown SRT</button>
+			  <button id="ed-exp-all">Export All (zip)</button> <!-- sementara ini export single SRT gabungan -->
+			</div>
+
+			<!-- Grid: kiri video, kanan list -->
+			<div class="ed-grid">
+			  <div id="ed-video-box">
+				<video id="ed-video" class="ed-video" controls></video>
+			  </div>
+			  <div class="ed-panel">
+				<div class="ed-counter"><span id="ed-counter">0 shown / 0 total</span></div>
+				<div id="ed-list" class="ed-list"></div>
+			  </div>
+			</div>
+
+		  
+		</div>
+
+		
         <!-- TTS Export Tab -->
         <div id="tts-export" class="tab-content">
             <div class="bg-gray-800 rounded-lg p-6">
@@ -159,7 +210,7 @@
         <div class="container mx-auto px-4 py-4">
             <div class="flex justify-between items-center text-sm text-gray-400">
                 <div>
-                    © 2024 DracinDub Web. All rights reserved.
+                    © 2026 Dewa Dracin - Dewi R7. All rights reserved.
                 </div>
                 <div class="flex space-x-4">
                     <button id="save-all" class="hover:text-blue-400 transition-colors">

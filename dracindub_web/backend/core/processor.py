@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import sys
 import os
-
+from core.translate import TranslateEngine
 from api.websockets import websocket_manager
 from core.diarization import DiarizationEngine
 from core.translation import TranslationEngine
@@ -313,6 +313,35 @@ class ProcessingManager:
     
     def list_sessions(self):
         return self.session_manager.list_sessions()
+        
+    async def run_translate(self, session_id: Optional[str], cfg: Dict):
+        session = None
+        if session_id:
+            session = self.session_manager.get_session(session_id)
+            if not session:
+                raise RuntimeError("Session not found")
+
+        engine = TranslateEngine()
+        result = await engine.process(session, cfg)
+
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Engine returned invalid result: {result!r}")
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "Translate failed"))
+
+        data = result["data"]
+        # kalau auto+session: update session.srtpath dengan output baru
+        if session and data.get("output_path"):
+            out = Path(data["output_path"])
+            if out.exists():
+                self.session_manager.update_session(
+                    session_id,
+                    srtpath=str(out),
+                    status="translate_complete",
+                    progress=90,
+                    current_step="Translate done",
+                )
+        return data
 
 # Create global instance
 processing_manager = ProcessingManager()
