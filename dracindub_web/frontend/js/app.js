@@ -748,35 +748,82 @@ class DracinApp {
         }, 800);
     }
 
-	async loadTranslateTab() {
-	  const tab = document.getElementById('translate');
-	  if (!tab) return;
-	  tab.innerHTML = `
-		<div class="bg-gray-800 rounded-lg p-6">
-		  <h2 class="text-2xl font-bold mb-6 text-green-400">
-			<i class="fas fa-language mr-2"></i>Translate
-		  </h2>
-		  <div class="text-center py-8">
-			<div class="loading-spinner mx-auto mb-4"></div>
-			<p class="text-gray-400">Loading Translation interface...</p>
-		  </div>
-		</div>
-	  `;
-	  // langsung render UI + bind
-	  this.renderTranslateTab();
-	}
+// Perbaiki method loadTranslateTab() untuk auto-load SRT
+async loadTranslateTab() {
+  const tab = document.getElementById('translate');
+  if (!tab) return;
+  tab.innerHTML = `
+    <div class="bg-gray-800 rounded-lg p-6">
+      <h2 class="text-2xl font-bold mb-6 text-green-400">
+        <i class="fas fa-language mr-2"></i>Translate
+      </h2>
+      <div class="text-center py-8">
+        <div class="loading-spinner mx-auto mb-4"></div>
+        <p class="text-gray-400">Loading Translation interface...</p>
+      </div>
+    </div>
+  `;
 
-    //// MESSAGES (kanan) ////
-    appendMessage(obj) {
-      this.translate.messages.push({ts: new Date().toISOString(), ...obj});
-      this.renderMessages();
-    }
+  // renderTranslateTab() SUDAH memanggil setupTranslateEvents() di dalamnya
+  this.renderTranslateTab();
 
-    renderMessages() {
-      const el = document.getElementById('ts-messages');
-      if (!el) return;
-      el.textContent = JSON.stringify(this.translate.messages, null, 2);
-    }
+  // Auto-load dari session (opsional, hanya jika ada session)
+  if (this.currentSessionId) {
+    try {
+      const res  = await fetch(`/api/session/${this.currentSessionId}/srt?prefer=original`);
+      if (res.ok) {
+        const text  = await res.text();
+        const items = this.parseSRT(text);
+        this.translate.originalSubs = items.map(o => ({...o}));
+        this.translate.subtitles    = items.map(o => ({...o, trans: ''}));
+        this.filterAndRenderSubs?.();
+        this.showNotification('SRT loaded from session', 'success');
+      }
+    } catch {}
+  }
+}
+
+// === REPLACE: appendMessage + renderMessages ===
+appendMessage(obj) {
+  if (!this.translate) this.initTranslateState();
+  const arr = this.translate.messages;
+  arr.push({ ts: new Date().toISOString(), ...obj });
+  if (arr.length > 500) arr.splice(0, arr.length - 500);   // jaga memori
+  this.renderMessages(true);
+}
+
+/** Highlight baris sebentar supaya kelihatan row yang update */
+_flashTsRow(idx) {
+  const row = document.getElementById(`ts-row-${idx}`);
+  if (!row) return;
+  row.classList.add('ring-2','ring-emerald-400');
+  setTimeout(()=> row.classList.remove('ring-2','ring-emerald-400'), 900);
+}
+
+_scrollToTsRow(idx) {
+  const row = document.getElementById(`ts-row-${idx}`);
+  if (row && this.translate?.followSubs !== false) {
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+renderMessages(newItem = false) {
+  const el = document.getElementById('ts-messages');
+  if (!el) return;
+
+  // Hanya auto-scroll jika followResults = true
+  const shouldStickBottom =
+    this.translate.followResults && (newItem || this._isNearBottom(el));
+
+  // Tampilkan 50 terakhir agar terasa “streaming”
+  const last = (this.translate.messages || []).slice(-50);
+  el.textContent = JSON.stringify(last, null, 2);
+
+  if (shouldStickBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
 
     //// SRT parse/format ////
     parseSRT(text) {
@@ -820,6 +867,8 @@ class DracinApp {
 		size: 100,
 		follow: true,
 		search: "",
+		followSubs: true,
+		followResults: true,
 		// run cfg
 		apiKey: "sk-dbb007f10bc34473a2a890d556581edc",
 		lang: "id",
@@ -838,7 +887,10 @@ class DracinApp {
 		messages: []
 	  };
 	}
-
+	
+	_isNearBottom(el, pad = 24) {
+	  return (el.scrollHeight - el.clientHeight - el.scrollTop) <= pad;
+	}
 	/* ==============================
 	 * RENDER TAB TRANSLATE (layout 1 baris untuk subtitle)
 	 * ============================== */
@@ -965,68 +1017,56 @@ class DracinApp {
 	  this.setupTranslateEvents();
 	}
 
-	/* ==============================
-	 * EVENTS (tidak berubah banyak)
-	 * ============================== */
-	setupTranslateEvents() {
-	  if (!this.translate) this.initTranslateState();
-	  const $ = (id)=>document.getElementById(id);
+// ==================== TRANSLATE: EVENT BINDING (always re-bind after render) ====================
+setupTranslateEvents() {
+  if (!this.translate) this.initTranslateState();
+  const $ = (id) => document.getElementById(id);
 
-	  const bindVal = (id, key, toNum=false)=>{
-		const el=$(id); if (!el) return;
-		el.addEventListener('input', ()=>{ this.translate[key] = toNum ? Number(el.value) : el.value; });
-	  };
-	  const bindChk = (id, key)=>{
-		const el=$(id); if (!el) return;
-		el.addEventListener('change', ()=>{ this.translate[key] = !!el.checked; });
-	  };
+  // -- input config (sinkron ke state) --
+  const bindVal = (id, key, toNum=false) => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('input', () => { this.translate[key] = toNum ? Number(el.value) : el.value; });
+  };
+  const bindChk = (id, key) => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('change', () => { this.translate[key] = !!el.checked; });
+  };
 
-	  bindVal('ts-api','apiKey');
-	  bindVal('ts-batch','batch',true);
-	  bindVal('ts-workers','workers',true);
-	  bindVal('ts-timeout','timeout',true);
-	  bindChk('ts-autosave','autosave');
-	  bindVal('ts-lang','lang');
-	  bindVal('ts-engine','engine');
-	  bindVal('ts-temp','temperature',true);
-	  bindVal('ts-topp','top_p',true);
-	  bindVal('ts-style','style');
+  bindVal('ts-api',     'apiKey');
+  bindVal('ts-batch',   'batch', true);
+  bindVal('ts-workers', 'workers', true);
+  bindVal('ts-temp',    'temperature', true);
+  bindVal('ts-topp',    'top_p', true);
+  bindVal('ts-lang',    'lang');
+  bindVal('ts-engine',  'engine');
+  bindVal('ts-style',   'style');
+  bindChk('ts-autosave','autosave');
 
-	  const applySearch = ()=>{ this.translate.search = $('ts-search').value.trim(); this.filterAndRenderSubs(); };
-	  $('ts-search')?.addEventListener('input', applySearch);
-	  $('ts-size')?.addEventListener('change', ()=>{ this.translate.size = Number($('ts-size').value); this.translate.page=1; this.renderSubsPage(); });
-	  $('ts-page')?.addEventListener('change', ()=>{ this.translate.page = Math.max(1, Number($('ts-page').value||1)); this.renderSubsPage(); });
-	  $('ts-prev')?.addEventListener('click', ()=>{ this.translate.page = Math.max(1, this.translate.page-1); this.renderSubsPage(); });
-	  $('ts-nextpage')?.addEventListener('click', ()=>{ this.translate.page = Math.min(this.totalPages||1, this.translate.page+1); this.renderSubsPage(); });
-	  $('ts-follow')?.addEventListener('change', ()=>{ this.translate.follow = $('ts-follow').checked; });
+  // -- search & paging --
+  $('ts-search')?.addEventListener('input', () => { this.translate.search = $('ts-search').value.trim(); this.filterAndRenderSubs(); });
+  $('ts-size')?.addEventListener('change', () => { this.translate.size = Number($('ts-size').value) || 100; this.translate.page = 1; this.renderSubsPage(); });
+  $('ts-page')?.addEventListener('change', () => { this.translate.page = Math.max(1, Number($('ts-page').value || 1)); this.renderSubsPage(); });
+  $('ts-prev')?.addEventListener('click',  () => { this.translate.page = Math.max(1, this.translate.page - 1); this.renderSubsPage(); });
+  $('ts-nextpage')?.addEventListener('click', () => { this.translate.page = Math.min(this.totalPages || 1, this.translate.page + 1); this.renderSubsPage(); });
+  $('ts-follow')?.addEventListener('change', () => { this.translate.follow = $('ts-follow').checked; });
 
-	  $('ts-load')?.addEventListener('click', ()=> this.promptLoadSRT());
-		$('ts-start')?.addEventListener('click', () => {
-		  this.translate = this.translate || {};
-		  this.translate.runMode = 'start';
-		  this._translateGeneric();
-		});
+  // -- file/save/export/clear/next-tab --
+  $('ts-load')?.addEventListener('click',  () => this.promptLoadSRT());
+  $('ts-save')?.addEventListener('click',  () => this.translateSave());
+  $('ts-export')?.addEventListener('click',() => this.translateExport());
+  $('ts-clear')?.addEventListener('click', () => this.translateClear());
+  $('ts-next')?.addEventListener('click',  () => this.loadTab('editing'));
 
-		$('ts-resume')?.addEventListener('click', () => {
-		  this.translate = this.translate || {};
-		  this.translate.runMode = 'resume';
-		  this._translateGeneric();
-		});
+  // -- STREAMING actions (no space before ?.) --
+  $('ts-start')?.addEventListener('click',  () => this.tsStartStream('start'));
+  $('ts-resume')?.addEventListener('click', () => this.tsStartStream('resume'));
+  $('ts-fill')?.addEventListener('click',   () => this.tsStartStream('fill'));
+  $('ts-stop')?.addEventListener('click',   () => this.tsStopStream());
 
-		$('ts-fill')?.addEventListener('click', () => {
-		  this.translate = this.translate || {};
-		  this.translate.runMode = 'fill';
-		  this._translateGeneric();
-		});
-	  $('ts-save')?.addEventListener('click', ()=> this.translateSave());
-	  $('ts-export')?.addEventListener('click', ()=> this.translateExport());
-	  $('ts-stop')?.addEventListener('click', ()=> this.translateStop());
-	  $('ts-next')?.addEventListener('click', ()=> this.loadTab('editing'));
-	  $('ts-clear')?.addEventListener('click', ()=> this.translateClear());
-
-	  this.renderSubsPage();
-	  this.renderMessages();
-	}
+  // render awal
+  this.renderSubsPage();
+  this.renderMessages();
+}
 
 	/* ==============================
 	 * LOAD SRT (auto/manual)
@@ -1420,15 +1460,32 @@ class DracinApp {
 	/* ==============================
 	 * PROGRESS BAR
 	 * ============================== */
-	updateTranslateProgress() {
-	  const total = this.translate.subtitles.length || 0;
-	  const done  = this.translate.subtitles.filter(x => x.trans && x.trans.trim()).length;
-	  const pct = total ? Math.round(done*100/total) : 0;
-	  const bar = document.getElementById('ts-progressbar');
-	  const lab = document.getElementById('ts-progresslabel');
-	  if (bar) bar.style.width = pct + '%';
-	  if (lab) lab.textContent = `${pct}% (${done}/${total})`;
-	}
+updateTranslateProgress(done, total) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const bar = document.getElementById('ts-progressbar');
+  const lab = document.getElementById('ts-progresslabel');
+  if (bar) bar.style.width = `${pct}%`;
+  if (lab) lab.textContent = `${pct}% (${done}/${total})`;
+}
+
+// Fokus/scroll ke baris index tertentu
+scrollToTsRow(index) {
+  const row = document.getElementById(`ts-row-${index}`);
+  if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+setRowTranslation(index, text) {
+  const inp = document.querySelector(`input.ts-trans[data-idx="${index}"]`);
+  if (inp) {
+    inp.value = text || '';
+    inp.classList.add('bg-green-900/40'); // efek kecil biar kelihatan update
+    setTimeout(()=>inp.classList.remove('bg-green-900/40'), 300);
+  }
+  // sinkronkan ke state
+  const row = this.translate?.subtitles?.find(r => r.index === index);
+  if (row) row.trans = text || '';
+}
+
 
 	/* ==============================
 	 * SAVE / EXPORT / STOP / CLEAR
@@ -1526,47 +1583,318 @@ class DracinApp {
 	  this.translate.filtered = q ? src.filter(x=> ((x.text||'') + ' ' + (x.trans||'')).toLowerCase().includes(q)) : src.slice();
 	  this.translate.page=1; this.renderSubsPage();
 	}
-	/* ==============================
-	 * RENDER SUBS PAGE (1 BARIS untuk subtitle)
-	 * ============================== */
-	renderSubsPage(){
-	  const st=this.translate, table=document.getElementById('ts-table'), pagesEl=document.getElementById('ts-pages');
-	  if (!table) return;
-	  const arr=st.filtered||[]; this.totalPages=Math.max(1, Math.ceil(arr.length/st.size));
-	  if (pagesEl) pagesEl.textContent=String(this.totalPages);
-	  const start=(st.page-1)*st.size;
-	  
-	  // HEADER tabel
-	  const header = `
-		<div class="grid grid-cols-[60px,100px,100px,1fr,1fr] gap-2 px-3 py-2 bg-gray-800 border-b border-gray-600 sticky top-0 text-sm font-semibold text-gray-300">
-		  <div>#</div>
-		  <div>Start</div>
-		  <div>End</div>
-		  <div>Original</div>
-		  <div>Translation</div>
-		</div>
-	  `;
-	  
-	  // ROWS - 1 BARIS per subtitle
-	  const rows = arr.slice(start, start+st.size).map(s=>`
-		<div class="grid grid-cols-[60px,100px,100px,1fr,1fr] gap-2 px-3 py-2 border-b border-gray-700 hover:bg-gray-800 text-sm">
-		  <div class="text-gray-400 font-mono">${s.index}</div>
-		  <div class="text-gray-300 font-mono text-xs">${s.start}</div>
-		  <div class="text-gray-300 font-mono text-xs">${s.end}</div>
-		  <div class="text-gray-300 break-words">${this.escapeHtml(s.text||'')}</div>
-		  <div class="text-green-400 break-words font-medium">${this.escapeHtml(s.trans||'')}</div>
-		</div>
-	  `).join('');
-	  
-	  table.innerHTML = header + (rows || '<div class="p-4 text-center text-gray-500">No subtitles found</div>');
-	  
-	  const pg=document.getElementById('ts-page'); 
-	  if (pg) pg.value=String(st.page);
-	  
-	  if (st.follow && rows) {
-		table.scrollTop = table.scrollHeight;
-	  }
+	
+// Tambahkan method ini di dalam class DracinApp
+buildSrtFromState() {
+  // gunakan this.translate.subtitles (index/start/end/text)
+  const rows = this.translate.subtitles || [];
+  return rows.map(r => `${r.index}\n${r.start} --> ${r.end}\n${(r.text||'')}\n`).join('\n');
+}
+
+// ==================== HELPERS ====================
+_tsMissingIndices() {
+  // baris yang belum punya terjemahan (kosong)
+  return this.translate.subtitles
+    .filter(x => !x.trans || !String(x.trans).trim())
+    .map(x => x.index);
+}
+
+_tsResumeFromFirstGap(missingList) {
+  if (!missingList.length) return [];
+  const first = Math.min(...missingList);
+  return this.translate.subtitles
+    .filter(x => x.index >= first)
+    .map(x => x.index);
+}
+
+_tsToggleButtons(disabled) {
+  ['ts-start','ts-resume','ts-fill','ts-stop','ts-load','ts-save','ts-export','ts-clear']
+    .forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !!disabled && id!=='ts-stop';
+    });
+}
+
+_tsUpdateProgress(done, total) {
+  const bar = document.getElementById('ts-progressbar');
+  const label = document.getElementById('ts-progresslabel');
+  const pct = (!total ? 0 : Math.round(100*done/total));
+  if (bar)   bar.style.width = `${pct}%`;
+  if (label) label.textContent = `${pct}% (${done}/${total||0})`;
+}
+
+// ==================== TRANSLATE: STREAM START/RESUME/FILL ====================
+async tsStartStream(runMode='start') {
+  if (!this.translate) this.initTranslateState();
+  const st = this.translate;
+
+  if (st.running) { this.showNotification('Translate is running…', 'info'); return; }
+  if (!st.apiKey)  { this.showNotification('API key kosong.', 'error'); return; }
+
+  // Tentukan indeks target
+  const allIdx = (this.translate.subtitles || []).map(x => x.index);
+  const missing = (this.translate.subtitles || []).filter(x => !(x.trans||'').trim()).map(x => x.index);
+  let only = [];
+  if (runMode === 'fill') only = missing;
+  else if (runMode === 'resume') {
+    if (!missing.length) { this.showNotification('Nothing to resume.', 'info'); return; }
+    const firstGap = Math.min(...missing);
+    only = this.translate.subtitles.filter(x => x.index >= firstGap && !(x.trans||'').trim()).map(x => x.index);
+  } else {
+    // start: proses semua baris (biar konsisten dengan permintaanmu sebelumnya)
+    only = allIdx;
+  }
+  if (!only.length) { this.showNotification('Tidak ada baris yang perlu diterjemahkan.', 'success'); return; }
+
+  const hasSession = !!this.currentSessionId;
+  const url = hasSession
+    ? `/api/session/${this.currentSessionId}/translate/stream`
+    : `/api/translate/stream`;
+
+  const fd = new FormData();
+  fd.append('api_key', st.apiKey);
+  fd.append('target_lang', st.lang || 'id');
+  fd.append('engine', st.engine || 'llm');
+  fd.append('temperature', String(st.temperature ?? 0.1));
+  fd.append('top_p', String(st.top_p ?? 0.3));
+  fd.append('workers', String(st.workers || 1));
+  fd.append('timeout', String(st.timeout || 120));
+  fd.append('mode', st.style || 'dubbing');
+  fd.append('only_indices', only.join(','));
+
+  if (hasSession) {
+    fd.append('prefer', 'original');                // paksa ambil SRT original di server
+    fd.append('autosave', st.autosave ? 'true':'false');
+  } else {
+    // manual mode: kirim SRT sumber yang sudah ada di state
+    const src = (this.translate.originalSubs && this.translate.originalSubs.length)
+      ? this.translate.originalSubs
+      : this.translate.subtitles;
+    const srtText = (src || []).map(it => `${it.index}\n${it.start} --> ${it.end}\n${it.text||''}\n`).join('\n');
+    if (!srtText.trim()) { this.showNotification('SRT belum dimuat. Klik Load dulu.', 'error'); return; }
+    fd.append('srt_text', srtText);
+  }
+
+  // Lock UI + progress
+  st.running = true;
+  ['ts-start','ts-resume','ts-fill','ts-load','ts-save','ts-export','ts-clear','ts-next'].forEach(id=>{
+    const b=document.getElementById(id); if (b && id!=='ts-stop') b.disabled = true;
+  });
+  const total = only.length;
+  let done = 0;
+  const upd = () => {
+    const bar = document.getElementById('ts-progressbar');
+    const lab = document.getElementById('ts-progresslabel');
+    const pct = Math.round(done*100/total);
+    if (bar) bar.style.width = `${pct}%`;
+    if (lab) lab.textContent = `${pct}% (${done}/${total})`;
+  };
+  upd();
+
+  // siapkan abort
+  const controller = new AbortController();
+  st.abort = controller;
+
+  try {
+    const res = await fetch(url, { method:'POST', body: fd, signal: controller.signal });
+    if (!res.ok || !res.body) {
+      const msg = await res.text().catch(()=>`${res.status} ${res.statusText}`);
+      throw new Error(`Translate failed: ${msg}`);
+    }
+
+    // NDJSON reader
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const {value, done:drained} = await reader.read();
+      if (drained) break;
+      buffer += decoder.decode(value, {stream:true});
+
+      let nl;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl+1);
+        if (!line) continue;
+
+        let evt;
+        try { evt = JSON.parse(line); } catch { continue; }
+
+        // tampilkan di panel kanan SATU-PER-SATU
+        this.appendMessage(evt);
+		this.renderMessages(true); // true = force scroll
+
+        if (evt.type === 'result') {
+          // set hasil ke grid kiri
+          const idx = Number(evt.index);
+          const row = this.translate.subtitles.find(r => r.index === idx);
+          if (row) row.trans = (evt.translation || '').trim();
+          done += 1;
+          upd();
+          this.renderSubsPage(true); // keep scroll
+		  const input = document.querySelector(`#ts-row-${evt.index} .ts-trans`);
+		  if (input) input.value = row.trans;
+		  this._flashTsRow(evt.index);
+		  this._scrollToTsRow(evt.index);
+        }
+      }
+    }
+
+    this.showNotification('Translate finished', 'success');
+  } catch (err) {
+    if (err?.name === 'AbortError') this.showNotification('Translate stopped', 'info');
+    else this.showNotification(`Translate failed: ${err?.message || err}`, 'error');
+  } finally {
+    st.running = false;
+    st.abort   = null;
+    // unlock UI
+    ['ts-start','ts-resume','ts-fill','ts-load','ts-save','ts-export','ts-clear','ts-next'].forEach(id=>{
+      const b=document.getElementById(id); if (b) b.disabled = false;
+    });
+    const bar = document.getElementById('ts-progressbar');
+    const lab = document.getElementById('ts-progresslabel');
+    if (bar) bar.style.width = '0%';
+    if (lab) lab.textContent = `0% (0/0)`;
+  }
+}
+
+
+// Bangun SRT dari originalSubs (tanpa terjemahan) – untuk mode manual
+buildSrtFromOriginal(items = []) {
+  return (items || []).map(it => {
+    return `${it.index}\n${it.start} --> ${it.end}\n${it.text || ''}\n`;
+  }).join('\n');
+}
+
+// === HANYA yang kosong ===
+getMissingIndices() {
+  return (this.translate?.subtitles || [])
+    .filter(r => !(r.trans || '').trim())
+    .map(r => r.index);
+}
+
+// === Resume: dari first kosong sampai akhir, yang kosong saja ===
+getResumeIndices() {
+  const arr = this.translate?.subtitles || [];
+  const pos = arr.findIndex(r => !(r.trans || '').trim());
+  if (pos < 0) return [];
+  return arr.slice(pos).filter(r => !(r.trans || '').trim()).map(r => r.index);
+}
+
+// Panggil di setupTranslateEvents() untuk tombol Fill/Resume:
+tsFillStream() {
+  const idxs = this.getMissingIndices();
+  if (!idxs.length) {
+    this.showNotification('Nothing to fill. All translated.', 'info');
+    return;
+  }
+  this.tsStartStream({ onlyIndices: idxs });
+}
+
+tsResumeStream() {
+  if (!this.translate) this.initTranslateState();
+  const rows = this.translate.subtitles || [];
+  const cp = this.translate.checkpoint || 0;
+  const only = rows.filter(r => r.index > cp && !(r.trans||'').trim()).map(r => r.index);
+  return this.tsStartStream({ onlyIndices: only });
+}
+
+tsFillStream() {
+  if (!this.translate) this.initTranslateState();
+  const rows = this.translate.subtitles || [];
+  const only = rows.filter(r => !(r.trans||'').trim()).map(r => r.index);
+  return this.tsStartStream({ onlyIndices: only });
+}
+
+// ==================== TRANSLATE: STOP ====================
+tsStopStream() {
+  const st = this.translate || {};
+  if (st.abort) { try { st.abort.abort(); } catch {} }
+}
+
+
+	// ===== Helper progress kecil di header =====
+	tsUpdateProgress(done, total) {
+	  this.translate.totalDone = done;
+	  this.translate.totalAll  = total;
+	  const pct = total ? Math.floor((done/total)*100) : 0;
+	  const bar = document.getElementById('ts-progressbar');
+	  const lbl = document.getElementById('ts-progresslabel');
+	  if (bar) bar.style.width = `${pct}%`;
+	  if (lbl) lbl.textContent = `${pct}% (${done}/${total})`;
 	}
+	 
+// Di dalam method renderSubsPage(), pastikan markup seperti ini:
+/**
+ * Render tabel subtitle TANPA paksa scroll ke bawah.
+ * - keepPos: true = jaga posisi scroll sekarang (default).
+ * - Kalau kamu sudah punya renderSubsPage(), ganti dengan ini.
+ */
+renderSubsPage(keepPos = true) {
+  if (!this.translate) this.initTranslateState();
+  const st = this.translate;
+  const wrap = document.getElementById('ts-table');
+  if (!wrap) return;
+
+  // simpan posisi scroll supaya tidak loncat ke bawah sesudah re-render
+  const prevScroll = keepPos ? wrap.scrollTop : 0;
+
+  // filter/paging sesuai state-mu (sesuaikan kalau berbeda)
+  const list = st.filtered?.length ? st.filtered : (st.subtitles || []);
+  const page = Math.max(1, Number(st.page || 1));
+  const size = Number(st.size || 100);
+  const start = (page - 1) * size;
+  const pageRows = list.slice(start, start + size);
+
+  // builder baris; PASTIKAN id="ts-row-{{index}}" dan input .ts-trans
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
+  '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'
+}[c]));
+
+wrap.innerHTML = `
+  <table class="w-full text-sm text-gray-200">
+    <thead>
+      <tr class="bg-gray-800 border-b border-gray-600 sticky top-0 text-sm font-semibold text-gray-300">
+        <th class="px-3 py-2 w-10 text-left">#</th>
+        <th class="px-3 py-2 w-20 text-left">Start</th>
+        <th class="px-3 py-2 w-20 text-left">End</th>
+        <th class="px-3 py-2 text-left">Original</th>
+        <th class="px-3 py-2 w-[28rem] text-left">Translation</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${pageRows.map(r => `
+        <tr id="ts-row-${r.index}" class="border-b border-gray-700 hover:bg-gray-800">
+          <td class="px-3 py-2 text-gray-400 font-mono">${r.index}</td>
+          <td class="px-3 py-2 text-gray-300 font-mono text-xs">${esc(r.start)}</td>
+          <td class="px-3 py-2 text-gray-300 font-mono text-xs">${esc(r.end)}</td>
+          <td class="px-3 py-2 text-gray-300 break-words">${esc(r.text)}</td>
+          <td class="px-3 py-2">
+            <input class="ts-trans w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-green-400 break-words font-medium" 
+                   value="${esc(r.trans)}" data-idx="${r.index}">
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+`;
+
+  // restore posisi scroll (agar tidak turun ke bawah)
+  if (keepPos) wrap.scrollTop = prevScroll;
+
+  // sinkronisasi perubahan manual di input ke state (opsional)
+  wrap.querySelectorAll('.ts-trans').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const idx = Number(e.target.dataset.idx);
+      const row = st.subtitles?.find(x => x.index === idx);
+      if (row) row.trans = e.target.value;
+    });
+  });
+}
+
+/* ================== /PATCH: follow ke baris hasil terjemahan ================= */
+	
 	buildMessagesArray(){
 	  return (this.translate.subtitles||[]).map(s=>({
 		index: s.index,
@@ -1575,11 +1903,18 @@ class DracinApp {
 		translation: s.trans || ""
 	  }));
 	}
-	renderMessages(){
-	  const el=document.getElementById('ts-messages');
-	  if (!el) return;
-	  el.textContent = JSON.stringify(this.buildMessagesArray(), null, 2);
-	}
+
+// ==================== RENDER LOG (batasi agar tidak “massal”) ====================
+renderMessages(forceScroll = false) {
+  const el = document.getElementById('ts-messages');
+  if (!el || !this.translate) return;
+  const msgs = this.translate.messages.slice(-200);
+  el.textContent = JSON.stringify(msgs, null, 2);
+  
+  if (forceScroll || this.translate.followResults) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
 
 /* ===========================
  *  TAB 3 — EDITING (FULL BLOCK)
@@ -1662,18 +1997,20 @@ async loadEditingTab() {
 
       <div id="ed-session-info" class="text-sm text-gray-400 mb-3">No session loaded.</div>
 
-      <div class="flex gap-4">
-        <div class="bg-black rounded overflow-hidden" style="width:38%;">
-          <video id="ed-video" class="w-full h-[66vh] object-contain bg-black" controls playsinline></video>
-        </div>
+		<div class="grid grid-cols-[30%_1fr] gap-4 items-start">
+		  <div class="sticky top-20 h-[calc(100vh-6rem)] bg-black rounded overflow-hidden">
+			<video id="ed-video"
+				   class="w-full h-full object-contain bg-black aspect-[9/16]"
+				   controls preload="metadata" playsinline></video>
+		  </div>
 
-        <div class="flex-1 flex flex-col">
-          <div class="text-sm text-gray-300 mb-2">
-            <span id="ed-counter">0 shown / 0 total</span>
-          </div>
-          <div id="ed-list" class="flex-1 overflow-auto bg-gray-900 border border-gray-700 rounded"></div>
-        </div>
-      </div>
+		  <div class="max-h-[calc(100vh-6rem)] overflow-auto flex flex-col">
+			<div class="text-sm text-gray-300 mb-2">
+			  <span id="ed-counter">0 shown / 0 total</span>
+			</div>
+			<div id="ed-list" class="flex-1 space-y-2"></div>
+		  </div>
+		</div>
     </div>
   `;
 
@@ -1708,13 +2045,12 @@ _edBindEvents() {
   $('ed-gender')?.addEventListener('change', () => {
     ed.genderFilter = $('ed-gender').value; this._edFilterRender();
   });
-const spkSel = document.getElementById('ed-speaker');
-if (spkSel) {
-  spkSel.addEventListener('change', () => {
-    this.editing.speakerFilter = spkSel.value; // contoh: "SPEAKER_04" atau "all"
-    this._edFilterRender();
-  });
-}
+const spkSel = document.getElementById('ed-speaker-select') ||
+               document.getElementById('ed-speaker');
+spkSel?.addEventListener('change', () => {
+  this.editing.speakerFilter = spkSel.value || 'all';
+  this._edFilterRender();
+});
   $('ed-search')?.addEventListener('input', () => {
     ed.search = $('ed-search').value.trim(); this._edFilterRender();
   });
@@ -1731,11 +2067,13 @@ if (spkSel) {
 }
 
 _edPopulateSpeakerFilter(list) {
-  const sel = document.getElementById('ed-speaker');
+  const sel =
+    document.getElementById('ed-speaker-select') ||
+    document.getElementById('ed-speaker');
   if (!sel) return;
 
-  const speakers = Array.isArray(list) ? list : [];
-  const current = (this.editing.speakerFilter || 'all');
+  const speakers = Array.isArray(list) ? list.filter(Boolean) : [];
+  const current = (this.editing?.speakerFilter || 'all');
 
   sel.innerHTML =
     `<option value="all">All speakers</option>` +
@@ -1743,6 +2081,7 @@ _edPopulateSpeakerFilter(list) {
 
   sel.value = speakers.includes(current) ? current : 'all';
 }
+
 
 
 async _edPopulateSessionSelector() {
@@ -1779,11 +2118,15 @@ async _edLoad(sessionId) {
       notes: r.notes || ""
     }));
 
-    // Fallback untuk speakers jika backend belum mengirim atau kosong
-    ed.speakers = Array.isArray(data.speakers) && data.speakers.length
-      ? data.speakers
-      : [...new Set(ed.rows.map(r => (r.speaker || '').trim()).filter(Boolean))].sort();
+    // Setelah data rows diterima:
+    this._edIndexSeconds();
 
+    // Fallback untuk speakers jika backend belum mengirim atau kosong
+	ed.speakers = Array.isArray(data.speakers) && data.speakers.length
+	  ? data.speakers
+	  : [...new Set(ed.rows.map(r => (r.speaker || '').trim()).filter(Boolean))].sort();
+
+    // isi dropdown speaker sekali
     this._edPopulateSpeakerFilter(ed.speakers);
     ed.videoUrl = `/api/session/${sessionId}/video`;
 
@@ -1791,7 +2134,20 @@ async _edLoad(sessionId) {
     if (info) info.textContent = `Session: ${sessionId}`;
     const video = document.getElementById('ed-video');
     if (video) { video.src = ed.videoUrl; }
-    this._edFilterRender();
+    
+    // lalu filter pertama kali
+	// seed default filter jika belum ada
+	if (!this.editing.genderFilter)  this.editing.genderFilter  = 'all';
+	if (!this.editing.speakerFilter) this.editing.speakerFilter = 'all';
+	if (typeof this.editing.search !== 'string') this.editing.search = '';
+
+	// isi dropdown speaker (sekali saja, dari rows yang ada)
+	const speakers = [...new Set((this.editing.rows || [])
+	  .map(r => r.speaker).filter(Boolean))].sort();
+	this._edPopulateSpeakerFilter(speakers);
+
+	// render pertama
+	this._edFilterRender();
     this.showNotification('Editing data loaded.', 'success');
   } catch (e) {
     this.showNotification(`Load editing gagal: ${e.message || e}`, 'error');
@@ -1800,160 +2156,98 @@ async _edLoad(sessionId) {
   }
 }
 
-_edFilterRender() {
-  const ed = this.editing;
-  const term = (ed.search || "").toLowerCase();
-  const gf = ed.genderFilter;                   // "all" | "male" | "female" | "unknown"
-  const sf = (ed.speakerFilter || 'all').toLowerCase(); // "all" atau "speaker_xx"
+_edFilterRender(){
+  const ed = this.editing || {};
+  const rows = ed.rows || [];
+  const term = (ed.search || '').toLowerCase();
 
-  ed.filtered = ed.rows.filter(r => {
-    if (gf !== 'all' && (r.gender || 'unknown') !== gf) return false;
-    const rs = (r.speaker || '').toLowerCase();
-    if (sf !== 'all' && rs !== sf) return false;
-    if (term) {
-      const t = (r.translation || '').toLowerCase();
-      if (!t.includes(term)) return false;
-    }
-    return true;
+  // Fallback aman
+  const gf = (ed.genderFilter || 'all');           // 'all' | 'male' | 'female' | 'unknown'
+  const sf = (ed.speakerFilter || 'all');          // 'all' | 'SPEAKER_*'
+
+  ed.filtered = rows.filter(r => {
+    const okG = (gf === 'all') || ((r.gender || 'unknown') === gf);
+    const okS = (sf === 'all') || ((r.speaker || '') === sf);
+    const okQ = !term || (r.translation || '').toLowerCase().includes(term) ||
+                         (r.text || '').toLowerCase().includes(term);
+    return okG && okS && okQ;
   });
 
-  ed.total = ed.rows.length;
-  ed.shown = ed.filtered.length;
+  const counter = document.getElementById('ed-counter');
+  if (counter) counter.textContent = `${ed.filtered.length} shown / ${rows.length} total`;
+
   this._edRenderList();
-  const c = document.getElementById('ed-counter');
-  if (c) c.textContent = `${ed.shown} shown / ${ed.total} total`;
 }
+
 
 _edRenderList() {
   const wrap = document.getElementById('ed-list');
   const ed = this.editing;
   if (!wrap) return;
 
-  if (!ed.filtered.length) {
-    wrap.innerHTML = `<div class="p-6 text-gray-400">No rows.</div>`;
-    return;
-  }
+  if (!ed.filtered.length) { wrap.innerHTML = `<div class="p-4 text-gray-400">No rows.</div>`; return; }
+  const esc = s => String(s||'').replace(/[&<>"']/g,c=>({ '&':'&','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-  const esc = s => (this.escapeHtml ? this.escapeHtml(s || '') :
-    String(s||'').replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
-
-  wrap.innerHTML = ed.filtered.map((r) => `
-    <div class="border-b border-gray-800 p-2 hover:bg-gray-800" data-idx="${r.index}" id="row-${r.index}">
-      <div class="flex items-center gap-3 mb-2 text-gray-300 text-sm">
-        <div class="w-14 text-gray-400">#${r.index}</div>
-        <div class="w-44">
-          <span class="px-2 py-0.5 bg-gray-700 rounded">${r.start}</span>
-          <span class="mx-1 text-gray-500">→</span>
-          <span class="px-2 py-0.5 bg-gray-700 rounded">${r.end}</span>
-        </div>
-
-        <select class="ed-gender bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs">
-          <option value="male" ${r.gender==='male'?'selected':''}>male</option>
-          <option value="female" ${r.gender==='female'?'selected':''}>female</option>
-          <option value="unknown" ${r.gender==='unknown'?'selected':''}>unknown</option>
-        </select>
-
-        <input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-40"
-               value="${esc(r.speaker)}" placeholder="SPEAKER_*"/>
-
-        <button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
+  // 1 baris: [#id][time][gender][speaker][translation][play]
+  wrap.innerHTML = ed.filtered.map(r => `
+    <div class="ed-row grid items-center gap-2"
+         style="grid-template-columns:48px 220px 80px 85px 1fr 38px"
+         data-idx="${r.index}" id="row-${r.index}">
+      <div class="text-gray-400 font-mono">#${r.index}</div>
+      <div class="ed-time font-mono text-sm bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap">
+        ${r.start} <span class="opacity-60">→</span> ${r.end}
       </div>
-
-      <textarea class="ed-text w-full bg-gray-800 border border-gray-700 text-white rounded p-2 text-sm"
-                rows="2" placeholder="Translation…">${esc(r.translation)}</textarea>
+      <select class="ed-gender bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs">
+        <option value="male" ${r.gender==='male'?'selected':''}>male</option>
+        <option value="female" ${r.gender==='female'?'selected':''}>female</option>
+        <option value="unknown" ${r.gender==='unknown'?'selected':''}>unknown</option>
+      </select>
+      <input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-full"
+             value="${esc(r.speaker||'')}" placeholder="SPEAKER_*"/>
+      <input class="ed-text bg-gray-800 border border-gray-700 text-white rounded px-2 py-1 text-sm w-full
+                    whitespace-nowrap overflow-hidden text-ellipsis"
+             value="${esc(r.translation||'')}" placeholder="Translation…"/>
+      <button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
     </div>
   `).join('');
 
-  wrap.querySelectorAll('.ed-text').forEach((ta) => {
-    ta.addEventListener('input', (e) => {
-      const rowEl = e.target.closest('[data-idx]');
-      const idx = Number(rowEl.getAttribute('data-idx'));
-      const row = this.editing.rows.find(x => x.index === idx);
+  // binding (tanpa re-render) — update data langsung
+  wrap.querySelectorAll('.ed-text').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+      const row = this.editing.rows.find(x=>x.index===idx);
       if (row) row.translation = e.target.value;
     });
   });
-
-  wrap.querySelectorAll('.ed-gender').forEach((sel) => {
-    sel.addEventListener('change', (e) => {
-      const rowEl = e.target.closest('[data-idx]');
-      const idx = Number(rowEl.getAttribute('data-idx'));
-      const row = this.editing.rows.find(x => x.index === idx);
+  wrap.querySelectorAll('.ed-gender').forEach(sel=>{
+    sel.addEventListener('change', e=>{
+      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+      const row = this.editing.rows.find(x=>x.index===idx);
       if (row) row.gender = e.target.value;
     });
   });
-
-  wrap.querySelectorAll('.ed-speaker').forEach((inp) => {
-    inp.addEventListener('input', (e) => {
-      const rowEl = e.target.closest('[data-idx]');
-      const idx = Number(rowEl.getAttribute('data-idx'));
-      const row = this.editing.rows.find(x => x.index === idx);
+  wrap.querySelectorAll('.ed-speaker').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+      const row = this.editing.rows.find(x=>x.index===idx);
       if (row) row.speaker = e.target.value;
     });
   });
-
-  wrap.querySelectorAll('.ed-play').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      const rowEl = e.target.closest('[data-idx]');
-      this._edSeekToRow(Number(rowEl.getAttribute('data-idx')), true);
-    });
-  });
-
-  wrap.querySelectorAll('[data-idx]').forEach((rowEl) => {
-    rowEl.addEventListener('dblclick', () => {
-      this._edSeekToRow(Number(rowEl.getAttribute('data-idx')), true);
+  wrap.querySelectorAll('.ed-play').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+      this._edSeekToRow(idx, true);
     });
   });
 }
 
 // app.js — final version
-_edSeekToRow(idx, autoplay = false) {
-  const row = this.editing.rows.find(x => x.index === idx);
-  const v = document.getElementById('ed-video');
-  if (!row || !v) return;
-
-  const toSec = (ts) => {
-    const m = ts.match(/(\d\d):(\d\d):(\d\d),(\d\d\d)/);
-    if (!m) return 0;
-    return (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
-  };
-
-  const start = Math.max(0, toSec(row.start) + 0.01);
-  const end   = toSec(row.end);
-
-  // stop guard lama (kalau ada)
-  if (this._segGuard) { clearInterval(this._segGuard); this._segGuard = null; }
-
-  const playAfterSeek = () => {
-    v.removeEventListener('seeked', playAfterSeek);
-    if (autoplay) v.play();
-
-    // guard: auto-pause di akhir segmen
-    this._segGuard = setInterval(() => {
-      if (v.currentTime >= end - 0.01) {
-        v.pause();
-        clearInterval(this._segGuard);
-        this._segGuard = null;
-      }
-    }, 50);
-
-    // highlight row aktif
-    this._edHighlight(idx);
-  };
-
-  v.pause();
-
-  const doSeek = () => {
-    // set currentTime setelah metadata ada → browser pasti melakukan seek
-    v.currentTime = start;
-    v.addEventListener('seeked', playAfterSeek, { once: true });
-  };
-
-  // kalau metadata sudah ada, langsung seek; kalau belum, tunggu dulu
-  if (v.readyState >= 1) {
-    doSeek();
-  } else {
-    v.addEventListener('loadedmetadata', doSeek, { once: true });
-  }
+_edSeekToRow(idx, play=false){
+  const ed=this.editing; const v=document.getElementById('ed-video');
+  const r = ed.rows.find(x=>x.index===idx); if(!r||!v) return;
+  v.currentTime = r.startS + 0.001;
+  this._edHighlight(idx, true);
+  if (play){ ed.playUntil = r.endS; v.play(); }
 }
 
 _edRebuildSpeakerFilterOptions() {
@@ -1975,28 +2269,50 @@ _edRebuildSpeakerFilterOptions() {
 }
 
 
-_edOnVideoTime(cur) {
-  const toSec = (ts) => {
-    const m = ts.match(/(\d\d):(\d\d):(\d\d),(\d\d\d)/);
-    if (!m) return 0;
-    return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+m[4])/1000;
-  };
-  const ed = this.editing;
-  const hit = ed.rows.find(r => cur >= toSec(r.start) && cur <= toSec(r.end));
-  if (hit) this._edHighlight(hit.index, ed.follow);
+_edOnVideoTime(t){
+  const ed=this.editing; if(!ed?.rows?.length) return;
+  const r = ed.rows.find(x=>t>=x.startS && t<x.endS);
+  if (r) this._edHighlight(r.index, true);
+
+  // stop di akhir segmen jika sedang "play segment"
+  if (ed.playUntil != null && t>=ed.playUntil-0.02) {
+    const v=document.getElementById('ed-video'); v?.pause();
+    ed.playUntil = null;
+  }
 }
 
-_edHighlight(idx, scrollIntoView=false) {
-  const prevSel = (this.editing.playingRowIndex != null)
-    ? document.getElementById(`row-${this.editing.playingRowIndex}`) : null;
-  if (prevSel) prevSel.classList.remove('ring','ring-blue-400');
+_edToSec(t){ const m=t?.match?.(/(\d+):(\d+):(\d+),(\d+)/); if(!m) return 0;
+  return (+m[1])*3600+(+m[2])*60+(+m[3])+((+m[4])/1000); }
 
-  this.editing.playingRowIndex = idx;
-  const el = document.getElementById(`row-${idx}`);
-  if (el) {
-    el.classList.add('ring','ring-blue-400');
-    if (scrollIntoView) el.scrollIntoView({block:'center', behavior:'smooth'});
-  }
+// panggil sekali saat selesai _edLoad(): tambahkan startS/endS ke setiap row
+_edIndexSeconds(){
+  (this.editing.rows || []).forEach(r=>{
+    const m = (t)=> {
+      const x = (t||'').match(/(\d+):(\d+):(\d+),(\d+)/);
+      return x ? (+x[1])*3600+(+x[2])*60+(+x[3])+(+x[4])/1000 : 0;
+    };
+    r.startS = r.startS ?? m(r.start);
+    r.endS   = r.endS   ?? m(r.end);
+  });
+}
+
+// highlight baris aktif + autoscroll
+_edHighlight(idx, doFollow=true){
+  const ed=this.editing; if(!ed) return;
+  if (ed.liveIndex === idx) return;
+  if (ed.liveIndex) document.getElementById(`row-${ed.liveIndex}`)?.classList.remove('live');
+  ed.liveIndex = idx;
+  const rowEl = document.getElementById(`row-${idx}`);
+  rowEl?.classList.add('live');
+  if (doFollow && ed.follow) rowEl?.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+_edAutoResizeTextareas(){
+  document.querySelectorAll('.ed-translation').forEach(t=>{
+    const fit = () => { t.style.height='auto'; t.style.height = (t.scrollHeight)+'px'; };
+    fit();
+    t.addEventListener('input', fit);
+  });
 }
 
 async _edSave() {

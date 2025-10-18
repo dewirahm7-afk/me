@@ -11,6 +11,10 @@ from pydantic import BaseModel
 import json, re, tempfile, zipfile
 from typing import List, Optional
 
+from fastapi import Request
+from starlette.responses import StreamingResponse, Response
+import asyncio, json, time
+
 router = APIRouter()
 
 # --- Dependencies -------------------------------------------------------------
@@ -133,25 +137,51 @@ async def get_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
+def iter_file_range(path: Path, start: int, end: int, chunk_size: int = 1024 * 1024):
+    with open(path, "rb") as f:
+        f.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            data = f.read(min(chunk_size, remaining))
+            if not data:
+                break
+            remaining -= len(data)
+            yield data
+            
 @router.get("/api/session/{session_id}/video")
-async def get_video(
-    session_id: str,
-    pm = Depends(get_processing_manager),
-):
-    try:
-        session = pm.get_session(session_id)
-        if not session or not session.video_path:
-            raise HTTPException(status_code=404, detail="Video not found")
+async def get_video(session_id: str, request: Request, pm = Depends(get_processing_manager)):
+    session = pm.get_session(session_id)
+    if not session or not session.video_path:
+        raise HTTPException(status_code=404, detail="Video not found")
 
-        return FileResponse(
-            session.video_path,
-            media_type="video/mp4",
-            filename=Path(session.video_path).name,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    file_path = Path(session.video_path)
+    file_size = file_path.stat().st_size
+    range_header = request.headers.get("range")
 
+    # Jika browser minta partial (seek)
+    if range_header:
+        # contoh: "bytes=12345-67890" atau "bytes=12345-"
+        m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            end = min(end, file_size - 1)
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(end - start + 1),
+                "Content-Type": "video/mp4",
+            }
+            return StreamingResponse(
+                iter_file_range(file_path, start, end),
+                status_code=206,
+                headers=headers,
+            )
+
+    # fallback: kirim full file tapi tetap deklarasi Accept-Ranges
+    resp = FileResponse(str(file_path), media_type="video/mp4", filename=file_path.name)
+    resp.headers["Accept-Ranges"] = "bytes"
+    return resp
 
 @router.get("/api/sessions")
 async def list_sessions(pm = Depends(get_processing_manager)):
@@ -331,6 +361,195 @@ async def translate_session(
     data = await pm.run_translate(session_id, cfg)
     return JSONResponse(data)
 
+# === Tambahkan di bawah endpoint /api/session/{id}/translate (atau berdampingan) ===
+@router.post("/api/session/{session_id}/translate/stream")
+async def translate_stream(
+    session_id: str,
+    api_key: str = Form(""),
+    target_lang: str = Form("id"),
+    engine: str = Form("llm"),
+    temperature: float = Form(0.1),
+    top_p: float = Form(0.3),
+    batch: int = Form(20),                # UI tetap kirim, tapi kita stream per item
+    workers: int = Form(1),
+    timeout: int = Form(120),
+    autosave: str = Form("true"),
+    srt_text: str = Form(""),
+    mode: str = Form("dubbing"),
+    prefer: str = Form("original"),
+    only_indices: str = Form(""),         # "1,2,5" (opsional)
+    pm = Depends(get_processing_manager),
+):
+
+    session = pm.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    from core.translate import TranslateEngine
+    eng = TranslateEngine()
+
+    # Ambil SRT dari workspace (atau dari srt_text jika dikirim)
+    text, workdir = eng._resolve_input_srt(session, {"prefer": prefer, "srt_text": srt_text})
+    items = eng._parse_srt(text)
+    if not items:
+        raise HTTPException(400, "SRT is empty or cannot be parsed")
+
+    # Filter indeks jika diminta
+    only = set()
+    if only_indices.strip():
+        for x in re.split(r"[,\s]+", only_indices.strip()):
+            if x.isdigit(): only.add(int(x))
+    items_to_process = [it for it in items if not only or it["index"] in only]
+
+    # Buffer hasil untuk autosave
+    trans_buf = [""] * len(items)
+    idx_pos = {it["index"]: i for i, it in enumerate(items)}
+
+    async def eventgen():
+        try:
+            # Mulai
+            yield (json.dumps({"type": "begin", "total": len(items_to_process)}) + "\n").encode()
+            done = 0
+            W = max(1, int(workers))
+
+            # === STREAM PER ITEM ===
+            for item in items_to_process:
+                result = eng._translate_items_with_deepseek(
+                    items=[item],
+                    api_key=api_key,
+                    style=mode,
+                    target_lang=target_lang,
+                    temperature=float(temperature),
+                    top_p=float(top_p),
+                    batch_size=1,
+                    workers=W,
+                    timeout=int(timeout),
+                )
+                t = (result[0] if isinstance(result, (list, tuple)) and result else "") or ""
+
+                # simpan ke buffer (autosave)
+                pos = idx_pos.get(item["index"])
+                if pos is not None:
+                    trans_buf[pos] = t
+
+                # kirim 1 hasil
+                yield (json.dumps({
+                    "type": "result",
+                    "index": item["index"],
+                    "timestamp": f'{item["start"]} --> {item["end"]}',
+                    "original_text": item["text"],
+                    "translation": t
+                }) + "\n").encode()
+
+                done += 1
+                # progress per item
+                yield (json.dumps({"type": "progress", "done": done, "total": len(items_to_process)}) + "\n").encode()
+
+                # autosave tiap 10 item
+                if autosave.lower() == "true" and done % 10 == 0:
+                    try:
+                        srt_out = eng._build_srt_with_trans(items, trans_buf)
+                        (workdir / "translated_latest.srt").write_text(srt_out, encoding="utf-8")
+                    except Exception:
+                        pass
+
+                await asyncio.sleep(0)
+
+            # End
+            yield (json.dumps({"type": "end"}) + "\n").encode()
+
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(
+        eventgen(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",        # nginx
+            "Connection": "keep-alive",
+            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+
+@router.post("/api/translate/stream")
+async def translate_stream_manual(
+    api_key: str = Form(""),
+    target_lang: str = Form("id"),
+    engine: str = Form("llm"),
+    temperature: float = Form(0.1),
+    top_p: float = Form(0.3),
+    batch: int = Form(20),            # UI tetap kirim, tapi stream per item
+    workers: int = Form(1),
+    timeout: int = Form(120),
+    srt_text: str = Form(...),        # WAJIB untuk manual
+    mode: str = Form("dubbing"),
+    only_indices: str = Form(""),
+):
+    from core.translate import TranslateEngine
+    eng = TranslateEngine()
+
+    # Parse SRT dari text
+    items = eng._parse_srt(srt_text)
+    if not items:
+        raise HTTPException(400, "SRT is empty or cannot be parsed")
+
+    # Filter indeks kalau ada
+    only = set()
+    if only_indices.strip():
+        for x in re.split(r"[,\s]+", only_indices.strip()):
+            if x.isdigit(): only.add(int(x))
+    items_to_process = [it for it in items if not only or it["index"] in only]
+
+    async def eventgen():
+        try:
+            yield (json.dumps({"type": "begin", "total": len(items_to_process)}) + "\n").encode()
+            done = 0
+            W = max(1, int(workers))
+
+            # === STREAM PER ITEM ===
+            for item in items_to_process:
+                result = eng._translate_items_with_deepseek(
+                    items=[item],
+                    api_key=api_key,
+                    style=mode,
+                    target_lang=target_lang,
+                    temperature=float(temperature),
+                    top_p=float(top_p),
+                    batch_size=1,
+                    workers=W,
+                    timeout=int(timeout),
+                )
+                t = (result[0] if isinstance(result, (list, tuple)) and result else "") or ""
+
+                yield (json.dumps({
+                    "type": "result",
+                    "index": item["index"],
+                    "timestamp": f'{item["start"]} --> {item["end"]}',
+                    "original_text": item["text"],
+                    "translation": t
+                }) + "\n").encode()
+
+                done += 1
+                yield (json.dumps({"type": "progress", "done": done, "total": len(items_to_process)}) + "\n").encode()
+                await asyncio.sleep(0)
+
+            yield (json.dumps({"type": "end"}) + "\n").encode()
+
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(
+        eventgen(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",        # nginx
+            "Connection": "keep-alive",
+            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Transfer-Encoding": "chunked",
+        },
+    )
 
 @router.post("/api/translate")
 async def translate_manual(
@@ -392,50 +611,107 @@ async def save_translated_srt(
 def _read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8", errors="ignore") if p and p.exists() else ""
 
-_TIME_RE = re.compile(r"(?P<h>\d\d):(?P<m>\d\d):(?P<s>\d\d),(?P<ms>\d{3})")
+# ==== SRT utilities (replace the existing ones) ==============================
+_TIME_RE = re.compile(r"(\d{2}:\d{2}:\d{2})[,.](\d{3})")
+_TIME_LINE_RE = re.compile(
+    r"(?P<s>\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(?P<e>\d{2}:\d{2}:\d{2}[,\.]\d{3})"
+)
+
+def _norm_ts(ts: str) -> str:
+    # pastikan milidetik pakai koma
+    return ts.replace(".", ",")
+
+def _clean_srt_text(s: str) -> str:
+    if not s:
+        return ""
+    s = s.lstrip("\ufeff")                # BOM
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    # buang header WEBVTT jika ada
+    lines = s.split("\n")
+    if lines and lines[0].strip().upper().startswith("WEBVTT"):
+        lines = lines[1:]
+    return "\n".join(lines)
+
 def _t2s(ts: str) -> float:
-    m = _TIME_RE.match(ts.strip())
-    if not m: return 0.0
+    ts = _norm_ts(ts)
+    m = re.match(r"(?P<h>\d\d):(?P<m>\d\d):(?P<s>\d\d),(?P<ms>\d{3})", ts.strip())
+    if not m:
+        return 0.0
     h, m_, s, ms = int(m["h"]), int(m["m"]), int(m["s"]), int(m["ms"])
-    return h*3600 + m_*60 + s + ms/1000.0
+    return h * 3600 + m_ * 60 + s + ms / 1000.0
 
 def _parse_srt(srt_text: str) -> List[dict]:
-    # return [{index,start,end,text,start_s,end_s}]
-    if not srt_text.strip(): return []
+    """
+    Parser yang toleran: menerima blok tanpa indeks, '.' atau ',' untuk ms,
+    dan mengabaikan header WEBVTT/BOM.
+    """
+    s = _clean_srt_text(srt_text)
+    if not s.strip():
+        return []
+
     blocks, cur = [], []
-    for line in srt_text.splitlines():
+    for line in s.split("\n"):
         if line.strip():
-            cur.append(line.rstrip("\r"))
+            cur.append(line)
         else:
-            if cur: blocks.append(cur); cur=[]
-    if cur: blocks.append(cur)
-    rows = []
+            if cur:
+                blocks.append(cur)
+                cur = []
+    if cur:
+        blocks.append(cur)
+
+    out, autono = [], 1
     for b in blocks:
+        if not b:
+            continue
+
+        # Jika baris pertama angka, itu index; kalau tidak, kita auto-number
+        k = 0
         try:
             idx = int(b[0].strip())
-            ts = b[1]
-            m = re.search(r"(\d\d:\d\d:\d\d,\d{3})\s*-->\s*(\d\d:\d\d:\d\d,\d{3})", ts)
-            if not m: continue
-            t1, t2 = m.group(1), m.group(2)
-            text = "\n".join(b[2:]).strip()
-            rows.append({
-                "index": idx,
-                "start": t1,
-                "end": t2,
-                "text": text,
-                "start_s": _t2s(t1),
-                "end_s": _t2s(t2)
-            })
+            k = 1
         except Exception:
+            idx = autono
+
+        # Cari baris timecode di dalam blok mulai dari k
+        tline = None
+        for i in range(k, len(b)):
+            m = _TIME_LINE_RE.search(b[i])
+            if m:
+                tline = (i, m.group("s"), m.group("e"))
+                break
+        if not tline:
+            autono += 1
             continue
-    return rows
+
+        i, s0, e0 = tline
+        s1, e1 = _norm_ts(s0), _norm_ts(e0)
+        text = "\n".join(b[i + 1 :]).strip()
+
+        out.append({
+            "index": idx,
+            "start": s1,
+            "end": e1,
+            "text": text,
+            "start_s": _t2s(s1),
+            "end_s": _t2s(e1),
+        })
+        autono += 1
+
+    return out
 
 def _pick_translation_file(workdir: Path) -> Optional[Path]:
-    # Prioritas: edited_translated.srt (hasil save) > translated_latest.srt > translated_*.srt
-    p = workdir / "edited_translated.srt"
-    if p.exists(): return p
-    p = workdir / "translated_latest.srt"
-    if p.exists(): return p
+    """
+    Prioritas:
+      1) edited_translated.srt
+      2) translated_latest.srt
+      3) translated.srt   (nama lama)
+      4) translated_*.srt (terbaru, termasuk subfolder)
+    """
+    for name in ["edited_translated.srt", "translated_latest.srt", "translated.srt"]:
+        p = workdir / name
+        if p.exists():
+            return p
     cands = list(workdir.glob("translated_*.srt"))
     cands += list(workdir.glob("**/translated_*.srt"))
     if cands:
@@ -497,84 +773,164 @@ def _best_overlap(seg_list: List[dict], a0: float, a1: float) -> Optional[dict]:
             best_ov, best = ov, s
     return best
 
-
+# endpoints.py  — TAB 3
 @router.get("/api/session/{session_id}/editing")
 def get_editing(session_id: str):
+    """
+    Load data untuk Tab 3 (Editing).
+
+    Prioritas sumber data:
+      1) workspaces/<id>/editing_cache.json   (source of truth setelah Save)
+      2) SRT terjemahan (_pick_translation_file): edited_translated.srt /
+         translated_latest.srt / translated.srt / translated_*.srt
+      3) Fallback ke source_video.srt (translation kosong)
+
+    Hasil selalu berisi:
+      - video: URL video untuk <video>
+      - rows: list item (index, start, end, translation, speaker, gender, notes)
+      - speakers: daftar unik speaker (untuk dropdown filter)
+    """
     d = Path("workspaces") / session_id
     if not d.exists():
         raise HTTPException(404, "Session not found")
 
-    # ---- 1) Ambil SRT untuk TRANSLATION (prioritas di _pick_translation_file) ----
-    tran_path = _pick_translation_file(d)
-    if not tran_path:
-        # Tidak ada terjemahan → tetap tampilkan timecode dari source_video.srt bila ada
-        orig = _parse_srt(_read_text(d / "source_video.srt"))
-        rows = []
-        for o in orig:
-            rows.append({
-                "index": o["index"],
-                "start": o["start"],
-                "end": o["end"],
-                "original": "",
-                "translation": "",
-                "speaker": None,
-                "gender": "unknown",
-                "notes": ""
+    cache_p = d / "editing_cache.json"
+
+    # ------------------------------------------------------------------ #
+    # 0) PAKAI CACHE DULU (source of truth setelah Save)
+    # ------------------------------------------------------------------ #
+    if cache_p.exists():
+        try:
+            payload = json.loads(cache_p.read_text(encoding="utf-8"))
+            rows_in = payload.get("rows", []) or []
+            rows = []
+            for r in rows_in:
+                idx = int(r.get("index") or r.get("idx") or 0)
+                start = str(r.get("start") or "")
+                end = str(r.get("end") or "")
+                translation = r.get("translation") or r.get("text") or ""
+                speaker = (r.get("speaker") or "").strip() or None
+                g = (r.get("gender") or "unknown").lower()
+                if g not in ("male", "female", "unknown"):
+                    g = "unknown"
+                rows.append({
+                    "index": idx,
+                    "start": start,
+                    "end": end,
+                    "original": "",
+                    "translation": translation,
+                    "speaker": speaker,
+                    "gender": g,
+                    "notes": r.get("notes") or ""
+                })
+            rows.sort(key=lambda x: x["index"])
+            speakers = sorted({(x["speaker"] or "").strip()
+                               for x in rows if x.get("speaker")})
+            return JSONResponse({
+                "video": f"/api/session/{session_id}/video",
+                "rows": rows,
+                "speakers": speakers
             })
-        # Untuk kasus tanpa terjemahan, speakers akan kosong
-        speakers = []
-        payload = {
-            "video": str(d / "source_video.mp4"),
+        except Exception:
+            # jika cache korup → lanjut ke jalur parse SRT
+            pass
+
+    # ------------------------------------------------------------------ #
+    # 1) PARSE SRT TERJEMAHAN (edited_translated / translated_latest / dst)
+    # ------------------------------------------------------------------ #
+    tran_rows = []
+    tp = _pick_translation_file(d)
+    if tp:
+        try:
+            tran_rows = _parse_srt(_read_text(tp))
+        except Exception:
+            tran_rows = []
+
+    # ------------------------------------------------------------------ #
+    # 2) Fallback: pakai timing dari source_video.srt jika tidak ada terjemahan
+    # ------------------------------------------------------------------ #
+    if not tran_rows:
+        orig = _parse_srt(_read_text(d / "source_video.srt"))
+        rows = [{
+            "index": o["index"],
+            "start": o["start"],
+            "end": o["end"],
+            "original": "",
+            "translation": "",
+            "speaker": None,
+            "gender": "unknown",
+            "notes": ""
+        } for o in orig]
+        return JSONResponse({
+            "video": f"/api/session/{session_id}/video",
             "rows": rows,
-            "speakers": speakers,
-        }
-        return JSONResponse(payload)
+            "speakers": []
+        })
 
-    tran = _parse_srt(_read_text(tran_path))
-    if not tran:
-        raise HTTPException(400, f"Cannot parse translation SRT: {tran_path.name}")
-
-    # ---- 2) Muat diarization segments untuk mapping speaker/gender ----
-    segs = _load_diarization_segments(d)  # setiap item ada start_s, end_s, speaker, gender
-
-    # ---- 3) Bentuk rows: ambil time dari TRANSLATION, match dengan segs via overlap ----
+    # ------------------------------------------------------------------ #
+    # 3) Map diarization (speaker+gender) via overlap waktu
+    # ------------------------------------------------------------------ #
+    segs = _load_diarization_segments(d)
     rows = []
-    for t in tran:
-        s = _best_overlap(segs, t["start_s"], t["end_s"]) if segs else None
-        gender = (s["gender"] if s else "Unknown").lower()
-        spk = s["speaker"] if s else None
+    for t in tran_rows:
+        s = _best_overlap(segs, float(t.get("start_s", 0.0)), float(t.get("end_s", 0.0))) if segs else None
+        speaker = (s.get("speaker") if s else None)
+        g = ((s.get("gender") if s else "unknown") or "unknown").lower()
+        if g not in ("male", "female", "unknown"):
+            g = "unknown"
         rows.append({
-            "index": t["index"],
+            "index": int(t["index"]),
             "start": t["start"],
             "end": t["end"],
             "original": "",
-            "translation": t["text"] or "",
-            "speaker": spk,
-            "gender": gender,
+            "translation": t.get("text") or "",
+            "speaker": speaker,
+            "gender": g,
             "notes": ""
         })
 
-    # ---- 4) Merge cache jika ada (hasil edit manual sebelumnya) ----
-    cache_p = d / "editing_cache.json"
+    # ------------------------------------------------------------------ #
+    # 4) Merge dengan cache jika ada (update field; tambahkan row yang tidak ada)
+    # ------------------------------------------------------------------ #
     if cache_p.exists():
         try:
             cache = json.loads(cache_p.read_text(encoding="utf-8"))
             by_idx = {r["index"]: r for r in rows}
-            for r in cache.get("rows", []):
-                if r["index"] in by_idx:
-                    by_idx[r["index"]].update({k: r[k] for k in ["translation","speaker","gender","notes"] if k in r})
+            for r in cache.get("rows", []) or []:
+                idx = int(r.get("index") or 0)
+                if idx in by_idx:
+                    # timpa value yang pernah diedit user
+                    for k in ("translation", "speaker", "gender", "notes", "start", "end"):
+                        if r.get(k) is not None:
+                            if k == "gender":
+                                gg = (r.get(k) or "unknown").lower()
+                                by_idx[idx][k] = gg if gg in ("male", "female", "unknown") else "unknown"
+                            else:
+                                by_idx[idx][k] = r.get(k)
+                else:
+                    gg = (r.get("gender") or "unknown").lower()
+                    if gg not in ("male", "female", "unknown"):
+                        gg = "unknown"
+                    by_idx[idx] = {
+                        "index": idx,
+                        "start": str(r.get("start") or ""),
+                        "end": str(r.get("end") or ""),
+                        "original": "",
+                        "translation": r.get("translation") or "",
+                        "speaker": (r.get("speaker") or None),
+                        "gender": gg,
+                        "notes": r.get("notes") or ""
+                    }
+            rows = [by_idx[k] for k in sorted(by_idx.keys())]
         except Exception:
             pass
 
-    # ---- 5) Ekstrak daftar speaker unik untuk dropdown ----
-    speakers = sorted({r["speaker"] for r in rows if r.get("speaker")})
-    
-    payload = {
-        "video": str(d / "source_video.mp4"),
+    speakers = sorted({(r.get("speaker") or "").strip() for r in rows if r.get("speaker")})
+    return JSONResponse({
+        "video": f"/api/session/{session_id}/video",
         "rows": rows,
-        "speakers": speakers,   # <— tambahkan ini
-    }
-    return JSONResponse(payload)
+        "speakers": speakers
+    })
 
 class Row(BaseModel):
     index: int
@@ -596,22 +952,24 @@ def post_editing(session_id: str, data: EditSave):
     d = Path("workspaces") / session_id
     d.mkdir(parents=True, exist_ok=True)
 
-    # Simpan cache JSON untuk state editor (speaker/gender/notes/translation)
+    # simpan cache editor
     (d / "editing_cache.json").write_text(
         json.dumps({"rows": [r.dict() for r in data.rows]}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
-    # Sekalian generate SRT terbaru (edited_translated.srt) dari rows
-    srt_lines = []
-    n = 1
+    # generate SRT versi edited
+    srt_lines, n = [], 1
     for r in data.rows:
         srt_lines.append(str(n))
         srt_lines.append(f"{r.start} --> {r.end}")
         srt_lines.append((r.translation or "").strip())
         srt_lines.append("")
         n += 1
-    (d / "edited_translated.srt").write_text("\r\n".join(srt_lines), encoding="utf-8")
+    txt = "\n".join(srt_lines).rstrip() + "\n"
+    (d / "edited_translated.srt").write_text(txt, encoding="utf-8")
+    # opsional: jaga kompatibilitas
+    (d / "translated_latest.srt").write_text(txt, encoding="utf-8")
 
     return {"status": "ok"}
 

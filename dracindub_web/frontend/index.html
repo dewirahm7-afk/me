@@ -67,6 +67,147 @@
 		.ed-meta .ed-play{ padding:6px 8px; border-radius:8px; }
 		.ed-trans{ width:100%; min-height:60px; background:#0b1220; border:1px solid #2a2f3a; color:#f3f4f6; border-radius:8px; padding:8px; }
 
+        /* ====== Layout Grid Baru ====== */
+        .ed-grid{
+          display:grid;
+          grid-template-columns: 30% 70%;
+          gap:16px;
+          align-items:start;
+          margin-top:12px;
+        }
+
+        /* kiri (video) sticky supaya selalu kelihatan saat list di-scroll) */
+        .ed-left{
+          position: sticky;
+          top: 72px;                /* sesuaikan tinggi toolbar/header */
+          height: calc(100vh - 84px);
+        }
+
+        .ed-video-wrap{
+          width:100%;
+          height:100%;
+          background:#000;
+          border-radius:10px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          overflow:hidden;
+        }
+
+        #ed-video{
+          width:100%;
+          height:100%;
+          object-fit: contain;      /* pillarbox untuk 9:16 */
+          aspect-ratio: 9 / 16;     /* jaga proporsi */
+        }
+
+        /* kanan (list) yang scroll */
+        .ed-right{
+          max-height: calc(100vh - 84px);
+          overflow:auto;
+          padding-right:6px;        /* space utk scrollbar */
+        }
+
+        /* ====== Row compact ====== */
+        .ed-row{
+          background: #1e2633;
+          border: 1px solid #2a3650;
+          border-radius:10px;
+          padding:10px;
+          margin-bottom:10px;
+        }
+
+        .ed-row__top{
+          display:flex;
+          align-items:center;
+          gap:8px;
+          margin-bottom:8px;
+        }
+
+        .ed-row__id{
+          font-weight:600;
+          color:#b8c7e0;
+          min-width: 36px;
+        }
+
+        .ed-time{
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+          font-size:12px;
+          background:#0f1724;
+          border:1px solid #24314b;
+          border-radius:8px;
+          padding:6px 8px;
+          white-space:nowrap;     /* 1 baris */
+        }
+
+        .ed-arrow{
+          opacity:.6;
+        }
+
+        .ed-controls{
+          margin-left:auto;
+          display:flex;
+          align-items:center;
+          gap:8px;
+        }
+
+        .ed-translation{
+          width:100%;
+          min-height:40px;        /* 1–2 baris */
+          resize: vertical;       /* bisa ditarik tinggi */
+          background:#0e1522;
+          color:#d8e2f2;
+          border:1px solid #24314b;
+          border-radius:8px;
+          padding:10px 12px;
+        }
+
+        /* counter kecil */
+        .ed-counter{
+          font-size:12px;
+          color:#8aa0c6;
+          margin:2px 0 10px;
+        }
+
+        /* Responsive: kalau layar sempit, tumpuk kolom */
+        @media (max-width: 1100px){
+          .ed-grid{ grid-template-columns: 1fr; }
+          .ed-left, .ed-right{ position:static; height:auto; max-height:none; }
+          #ed-video{ aspect-ratio: 9 / 16; height:auto; }
+        }
+
+        /* Styling untuk toolbar editing */
+        .ed-toolbar {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          padding: 10px 0;
+          align-items: center;
+        }
+        
+        .ed-toolbar input, .ed-toolbar select, .ed-toolbar button {
+          padding: 6px 10px;
+          border-radius: 6px;
+          border: 1px solid #374151;
+          background: #1f2937;
+          color: white;
+        }
+        
+        .ed-toolbar button {
+          background: #3b82f6;
+          cursor: pointer;
+        }
+        
+        .ed-toolbar button:hover {
+          background: #2563eb;
+        }
+        
+        .ed-toolbar label {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          color: #d1d5db;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -152,45 +293,49 @@
         </div>
 
         <!-- Editing Tab -->
-		<div id="editing" class="tab-content">
-			<!-- Toolbar -->
-			<div class="ed-toolbar">
-			  <input id="ed-session-id" class="ed-sid" placeholder="Session ID..." />
-			  <button id="ed-load-session">Load Session</button>
+        <div id="editing" class="tab-content">
+            <!-- Toolbar -->
+            <div class="ed-toolbar">
+                <input id="ed-session-id" class="ed-sid" placeholder="Session ID..." />
+                <button id="ed-load-session">Load Session</button>
 
-			  <select id="ed-gender">
-				<option value="all">All genders</option>
-				<option value="male">Male</option>
-				<option value="female">Female</option>
-				<option value="unknown">Unknown</option>
-			  </select>
+                <select id="ed-gender">
+                    <option value="all">All genders</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="unknown">Unknown</option>
+                </select>
 
-			  <select id="ed-speaker"><!-- filled by JS --></select>
-			  <input id="ed-search" placeholder="Search text..." />
-			  <label><input type="checkbox" id="ed-follow" checked> Follow</label>
+                <select id="ed-speaker"><!-- filled by JS --></select>
+                <input id="ed-search" placeholder="Search text..." />
+                <label><input type="checkbox" id="ed-follow" checked> Follow</label>
 
-			  <button id="ed-save">Save</button>
-			  <button id="ed-exp-m">Export Male SRT</button>
-			  <button id="ed-exp-f">Export Female SRT</button>
-			  <button id="ed-exp-u">Export Unknown SRT</button>
-			  <button id="ed-exp-all">Export All (zip)</button> <!-- sementara ini export single SRT gabungan -->
-			</div>
+                <button id="ed-save">Save</button>
+                <button id="ed-exp-m">Export Male SRT</button>
+                <button id="ed-exp-f">Export Female SRT</button>
+                <button id="ed-exp-u">Export Unknown SRT</button>
+                <button id="ed-exp-all">Export All (zip)</button>
+            </div>
 
-			<!-- Grid: kiri video, kanan list -->
-			<div class="ed-grid">
-			  <div id="ed-video-box">
-				<video id="ed-video" class="ed-video" controls preload="metadata"></video>
-			  </div>
-			  <div class="ed-panel">
-				<div class="ed-counter"><span id="ed-counter">0 shown / 0 total</span></div>
-				<div id="ed-list" class="ed-list"></div>
-			  </div>
-			</div>
+            <!-- BEGIN: Editing layout dengan grid baru -->
+            <div class="ed-grid">
+                <div class="ed-left">
+                    <div class="ed-video-wrap">
+                        <video id="ed-video" class="ed-video" controls preload="metadata" playsinline></video>
+                    </div>
+                </div>
 
-		  
-		</div>
+                <div class="ed-right">
+                    <!-- counter -->
+                    <div class="ed-counter"><span id="ed-counter">0 shown / 0 total</span></div>
 
-		
+                    <!-- list container -->
+                    <div id="ed-list" class="ed-list"></div>
+                </div>
+            </div>
+            <!-- END: Editing layout -->
+        </div>
+
         <!-- TTS Export Tab -->
         <div id="tts-export" class="tab-content">
             <div class="bg-gray-800 rounded-lg p-6">
