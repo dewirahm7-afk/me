@@ -2204,7 +2204,7 @@ _edRenderList() {
       </select>
       <input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-full"
              value="${esc(r.speaker||'')}" placeholder="SPEAKER_*"/>
-      <input class="ed-text bg-gray-800 border border-gray-700 text-white rounded px-2 py-1 text-sm w-full
+      <input class="ed-text bg-gray-800 border border-gray-700 text-green-400 rounded px-2 py-1 text-sm w-full
                     whitespace-nowrap overflow-hidden text-ellipsis"
              value="${esc(r.translation||'')}" placeholder="Translation…"/>
       <button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>

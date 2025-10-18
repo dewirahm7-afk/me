@@ -50,17 +50,30 @@ def build_system_prompt(style: str, target_lang: str) -> str:
     style = (style or "dubbing").lower()
     L     = (target_lang or "id").upper()
 
+    # >>> DUBBING & NORMAL: isinya SAMA persis <<<
     if style == "dubbing":
         rules = (
             f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
-            "- Singkat, natural, mudah diucapkan; jangan terlalu panjang.\n"
-            "- Hindari koma ',' berlebihan (membuat jeda TTS).\n"
+            "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
+            "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
+            "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
             "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
             "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
-            "- Konsisten penggunaan aku/kamu/dia dsb sesuai konteks.\n"
+            "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
+            "- Hmph ganti Hmm.\n"
         )
     else:
-        rules = f"- Terjemahkan ke bahasa {L}, natural dan akurat.\n"
+        # NORMAL → pakai aturan yang sama supaya tidak pusing beda gaya
+        rules = (
+            f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
+            "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
+            "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
+            "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
+            "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
+            "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
+            "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
+            "- Hmph ganti Hmm.\n"
+        )
 
     schema = (
         "Kembalikan **JSON OBJECT** dengan struktur PERSIS berikut:\n"
@@ -75,7 +88,7 @@ def build_system_prompt(style: str, target_lang: str) -> str:
     )
 
     return (
-        "Anda adalah penerjemah subtitle.\n"
+        "Anda adalah penerjemah subtitle khusus DUBBING Text To Speech.\n"
         + rules + "\n" + schema
     )
 

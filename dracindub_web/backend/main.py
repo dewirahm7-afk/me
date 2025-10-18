@@ -44,6 +44,7 @@ print(f"Frontend exists: {FRONTEND_DIR.exists()}")
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
     print("Static files mounted successfully")
+    print("✅ Buka Browser dengan Url : 127.0.0.1:8000")
 else:
     print(f"WARNING: Frontend directory not found at {FRONTEND_DIR}")
 
