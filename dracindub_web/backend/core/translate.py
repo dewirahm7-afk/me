@@ -56,11 +56,14 @@ def build_system_prompt(style: str, target_lang: str) -> str:
             f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
             "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
             "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
+            "- **Untuk kalimat tanya, GUNAKAN tanda tanya (?)** meskipun tidak ada di teks sumber.\n"
+            "- **Untuk kalimat seru, GUNAKAN tanda seru (!)** meskipun tidak ada di teks sumber.\n"
             "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
             "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
             "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
             "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
-            "- Hmph ganti Hmm.\n"
+            "- **Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dll.**\n"
+            "- Ubah 'Hmph' menjadi 'Hmm'.\n"
         )
     else:
         # NORMAL → pakai aturan yang sama supaya tidak pusing beda gaya
@@ -68,11 +71,14 @@ def build_system_prompt(style: str, target_lang: str) -> str:
             f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
             "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
             "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
+            "- **Untuk kalimat tanya, GUNAKAN tanda tanya (?)** meskipun tidak ada di teks sumber.\n"
+            "- **Untuk kalimat seru, GUNAKAN tanda seru (!)** meskipun tidak ada di teks sumber.\n"
             "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
             "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
             "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
             "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
-            "- Hmph ganti Hmm.\n"
+            "- **Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dll.**\n"
+            "- Ubah 'Hmph' menjadi 'Hmm'.\n"
         )
 
     schema = (
@@ -311,26 +317,41 @@ class TranslateEngine:
         workers: int,
         timeout: int,
     ) -> List[str]:
-
         if not api_key:
             raise RuntimeError("Missing API key for DeepSeek")
 
-        batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
-        results: List[str] = [""] * len(items)
+        # === NEW: siapkan batch + tail konteks (sliding window) ===
+        K = 3  # jumlah baris konteks sebelum batch; ubah sesuai kebutuhan
+        batches_meta = []  # [(start, core_items, prev_tail)]
+        n = len(items)
+        for start in range(0, n, batch_size):
+            core = items[start:start + batch_size]
+            prev_tail = items[max(0, start - K):start]
+            batches_meta.append((start, core, prev_tail))
 
-        def _do_one(batch_index: int, payload: List[Dict[str, Any]]):
-            return batch_index, self._deepseek_batch(
-                payload, api_key, style, target_lang, temperature, top_p, timeout
+        results: List[str] = [""] * n
+
+        def _do_one(batch_index: int, core_items: List[Dict[str, Any]], prev_tail: List[Dict[str, Any]]):
+            # pass prev_tail ke _deepseek_batch (signature baru)
+            outs = self._deepseek_batch(
+                core_items, api_key, style, target_lang, temperature, top_p, timeout,
+                prev_tail=prev_tail
             )
+            return batch_index, outs
 
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-            futs = {pool.submit(_do_one, i, batches[i]): i for i in range(len(batches))}
+            futs = {
+                pool.submit(_do_one, i, core, prev): i
+                for i, (start, core, prev) in enumerate(batches_meta)
+            }
             for fut in as_completed(futs):
-                b_idx, trans_list = fut.result()  # trans_list panjang = len(batches[b_idx])
+                b_idx, trans_list = fut.result()
+                # start global tetap konsisten = b_idx * batch_size
                 start = b_idx * batch_size
                 for j, t in enumerate(trans_list):
                     if start + j < len(results):
-                        results[start + j] = t or ""
+                        results[start + j] = (t or "").strip()
 
         return results
 
@@ -343,12 +364,25 @@ class TranslateEngine:
         temperature: float,
         top_p: float,
         timeout: int,
+        *,
+        prev_tail: List[Dict[str, Any]] = None,  # NEW
     ) -> List[str]:
-
         system_prompt = build_system_prompt(style, target_lang)
+
+        # siapkan konteks sebelumnya (opsional)
+        prev_tail = prev_tail or []
+        prev_context = [
+            {
+                "index": it["index"],
+                "timestamp": f'{it["start"]} --> {it["end"]}',
+                "original_text": it["text"],
+            }
+            for it in prev_tail
+        ]
 
         user_payload = {
             "target_lang": target_lang,
+            "prev_context": prev_context,  # NEW: hanya referensi, tidak dihitung hasil
             "items": [
                 {
                     "index": it["index"],
@@ -367,17 +401,14 @@ class TranslateEngine:
             ],
             "temperature": float(temperature),
             "top_p": float(top_p),
-            "response_format": {"type": "json_object"},  # paksa JSON object
+            "response_format": {"type": "json_object"},
         }
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-        # retry simple
         last_err = None
         for attempt in range(1, RETRY_MAX + 1):
             try:
-                r = requests.post(
-                    DEEPSEEK_URL, headers=headers, json=req, timeout=timeout or HTTP_TIMEOUT
-                )
+                r = requests.post(DEEPSEEK_URL, headers=headers, json=req, timeout=timeout or HTTP_TIMEOUT)
                 r.raise_for_status()
                 data = r.json()
                 content = data["choices"][0]["message"]["content"]
@@ -385,20 +416,16 @@ class TranslateEngine:
                 if not obj or "results" not in obj or not isinstance(obj["results"], list):
                     raise RuntimeError("Model returned invalid JSON")
 
-                # urutan hasil = urutan input → ambil translation saja
                 out: List[str] = []
                 for row in obj["results"]:
                     t = str(row.get("translation", "")).strip()
                     out.append(t)
-                # jaga-jaga: bila panjang mismatch, normalisasi
                 if len(out) != len(batch_items):
-                    # paksa panjang sama (truncate/pad)
                     out = (out + [""] * len(batch_items))[: len(batch_items)]
                 return out
-
             except Exception as e:
                 last_err = e
                 if attempt < RETRY_MAX:
                     time.sleep(RETRY_BACKOFF * attempt)
-
         raise RuntimeError(f"DeepSeek request failed: {last_err}")
+

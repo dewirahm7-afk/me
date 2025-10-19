@@ -370,20 +370,21 @@ async def translate_stream(
     engine: str = Form("llm"),
     temperature: float = Form(0.1),
     top_p: float = Form(0.3),
-    batch: int = Form(20),                # UI tetap kirim, tapi kita stream per item
+    batch: int = Form(20),
     workers: int = Form(1),
     timeout: int = Form(120),
     autosave: str = Form("true"),
     srt_text: str = Form(""),
     mode: str = Form("dubbing"),
     prefer: str = Form("original"),
-    only_indices: str = Form(""),         # "1,2,5" (opsional)
+    only_indices: str = Form(""),
+    typing_delay_ms: int = Form(20),   # <<< TAMBAHKAN INI
     pm = Depends(get_processing_manager),
 ):
-
     session = pm.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
     from core.translate import TranslateEngine
     eng = TranslateEngine()
 
@@ -397,7 +398,8 @@ async def translate_stream(
     only = set()
     if only_indices.strip():
         for x in re.split(r"[,\s]+", only_indices.strip()):
-            if x.isdigit(): only.add(int(x))
+            if x.isdigit():
+                only.add(int(x))
     items_to_process = [it for it in items if not only or it["index"] in only]
 
     # Buffer hasil untuk autosave
@@ -406,57 +408,75 @@ async def translate_stream(
 
     async def eventgen():
         try:
-            # Mulai
             yield (json.dumps({"type": "begin", "total": len(items_to_process)}) + "\n").encode()
-            done = 0
-            W = max(1, int(workers))
 
-            # === STREAM PER ITEM ===
-            for item in items_to_process:
-                result = eng._translate_items_with_deepseek(
-                    items=[item],
+            # === STREAM PER CHUNK (bukan per item) ==========================
+            # G = ukuran chunk dari GUI; batasi biar aman (mis. ≤ 50)
+            G = max(1, min(int(batch or 10), 50))
+            W = max(1, int(workers))
+            done = 0
+
+            for off in range(0, len(items_to_process), G):
+                chunk = items_to_process[off:off + G]
+
+                # bagi ke sub-batch paralel sesuai workers
+                internal_bs = max(1, (len(chunk) + W - 1) // W)
+
+                results = eng._translate_items_with_deepseek(
+                    items=chunk,
                     api_key=api_key,
                     style=mode,
                     target_lang=target_lang,
                     temperature=float(temperature),
                     top_p=float(top_p),
-                    batch_size=1,
+                    batch_size=int(internal_bs),
                     workers=W,
                     timeout=int(timeout),
                 )
-                t = (result[0] if isinstance(result, (list, tuple)) and result else "") or ""
 
-                # simpan ke buffer (autosave)
-                pos = idx_pos.get(item["index"])
-                if pos is not None:
-                    trans_buf[pos] = t
+                # --- pindahkan delay ke level ITEM (bukan setelah chunk) ---
+                delay_s = max(0.0, min(float(typing_delay_ms), 200.0) / 1000.0)
 
-                # kirim 1 hasil
-                yield (json.dumps({
-                    "type": "result",
-                    "index": item["index"],
-                    "timestamp": f'{item["start"]} --> {item["end"]}',
-                    "original_text": item["text"],
-                    "translation": t
-                }) + "\n").encode()
+                for item, t in zip(chunk, results):
+                    # simpan ke buffer (autosave)
+                    pos = idx_pos.get(item["index"])
+                    if pos is not None:
+                        trans_buf[pos] = t or ""
 
-                done += 1
-                # progress per item
-                yield (json.dumps({"type": "progress", "done": done, "total": len(items_to_process)}) + "\n").encode()
+                    # kirim satu hasil (NDJSON)
+                    yield (json.dumps({
+                        "type": "result",
+                        "index": item["index"],
+                        "timestamp": f'{item["start"]} --> {item["end"]}',
+                        "original_text": item["text"],
+                        "translation": t or ""
+                    }) + "\n").encode()
 
-                # autosave tiap 10 item
-                if autosave.lower() == "true" and done % 10 == 0:
+                    done += 1
+                    # progress per item
+                    yield (json.dumps({
+                        "type": "progress",
+                        "done": done,
+                        "total": len(items_to_process)
+                    }) + "\n").encode()
+
+                    # delay kosmetik antar item (efek "mengetik")
+                    if delay_s > 0.0:
+                        await asyncio.sleep(delay_s)
+
+                # autosave tiap selesai satu chunk (aman & jarang I/O)
+                if autosave.lower() == "true":
                     try:
                         srt_out = eng._build_srt_with_trans(items, trans_buf)
                         (workdir / "translated_latest.srt").write_text(srt_out, encoding="utf-8")
                     except Exception:
                         pass
 
+                # beri napas event loop (tanpa delay kosmetik lagi di level chunk)
                 await asyncio.sleep(0)
+            # =================================================================
 
-            # End
             yield (json.dumps({"type": "end"}) + "\n").encode()
-
         except asyncio.CancelledError:
             return
 
@@ -465,7 +485,7 @@ async def translate_stream(
         media_type="application/x-ndjson; charset=utf-8",
         headers={
             "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",        # nginx
+            "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
             "Content-Type": "application/x-ndjson; charset=utf-8",
             "Transfer-Encoding": "chunked",
@@ -479,11 +499,12 @@ async def translate_stream_manual(
     engine: str = Form("llm"),
     temperature: float = Form(0.1),
     top_p: float = Form(0.3),
-    batch: int = Form(20),            # UI tetap kirim, tapi stream per item
-    workers: int = Form(1),
+    batch: int = Form(20),            # dihormati utk ukuran chunk
+    workers: int = Form(1),           # dihormati utk paralel per chunk
     timeout: int = Form(120),
     srt_text: str = Form(...),        # WAJIB untuk manual
     mode: str = Form("dubbing"),
+    typing_delay_ms: int = Form(20),
     only_indices: str = Form(""),
 ):
     from core.translate import TranslateEngine
@@ -498,44 +519,58 @@ async def translate_stream_manual(
     only = set()
     if only_indices.strip():
         for x in re.split(r"[,\s]+", only_indices.strip()):
-            if x.isdigit(): only.add(int(x))
+            if x.isdigit():
+                only.add(int(x))
     items_to_process = [it for it in items if not only or it["index"] in only]
 
     async def eventgen():
         try:
             yield (json.dumps({"type": "begin", "total": len(items_to_process)}) + "\n").encode()
-            done = 0
-            W = max(1, int(workers))
 
-            # === STREAM PER ITEM ===
-            for item in items_to_process:
-                result = eng._translate_items_with_deepseek(
-                    items=[item],
+            # === STREAM PER CHUNK (bukan per item) ==========================
+            G = max(1, min(int(batch or 10), 50))
+            W = max(1, int(workers))
+            done = 0
+
+            for off in range(0, len(items_to_process), G):
+                chunk = items_to_process[off:off + G]
+                internal_bs = max(1, (len(chunk) + W - 1) // W)
+
+                results = eng._translate_items_with_deepseek(
+                    items=chunk,
                     api_key=api_key,
                     style=mode,
                     target_lang=target_lang,
                     temperature=float(temperature),
                     top_p=float(top_p),
-                    batch_size=1,
+                    batch_size=int(internal_bs),
                     workers=W,
                     timeout=int(timeout),
                 )
-                t = (result[0] if isinstance(result, (list, tuple)) and result else "") or ""
 
-                yield (json.dumps({
-                    "type": "result",
-                    "index": item["index"],
-                    "timestamp": f'{item["start"]} --> {item["end"]}',
-                    "original_text": item["text"],
-                    "translation": t
-                }) + "\n").encode()
+                delay_s = max(0.0, min(float(typing_delay_ms), 200.0) / 1000.0)
 
-                done += 1
-                yield (json.dumps({"type": "progress", "done": done, "total": len(items_to_process)}) + "\n").encode()
-                await asyncio.sleep(0)
+                for item, t in zip(chunk, results):
+                    yield (json.dumps({
+                        "type": "result",
+                        "index": item["index"],
+                        "timestamp": f'{item["start"]} --> {item["end"]}',
+                        "original_text": item["text"],
+                        "translation": t or ""
+                    }) + "\n").encode()
+
+                    done += 1
+                    yield (json.dumps({
+                        "type": "progress",
+                        "done": done,
+                        "total": len(items_to_process)
+                    }) + "\n").encode()
+
+                    if delay_s > 0.0:
+                        await asyncio.sleep(delay_s)
+            # =================================================================
 
             yield (json.dumps({"type": "end"}) + "\n").encode()
-
         except asyncio.CancelledError:
             return
 
@@ -544,7 +579,7 @@ async def translate_stream_manual(
         media_type="application/x-ndjson; charset=utf-8",
         headers={
             "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",        # nginx
+            "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
             "Content-Type": "application/x-ndjson; charset=utf-8",
             "Transfer-Encoding": "chunked",

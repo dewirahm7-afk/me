@@ -786,10 +786,120 @@ async loadTranslateTab() {
 // === REPLACE: appendMessage + renderMessages ===
 appendMessage(obj) {
   if (!this.translate) this.initTranslateState();
-  const arr = this.translate.messages;
+  const arr = this.translate.messages || (this.translate.messages = []);
   arr.push({ ts: new Date().toISOString(), ...obj });
   if (arr.length > 500) arr.splice(0, arr.length - 500);   // jaga memori
   this.renderMessages(true);
+}
+
+// === UI TYPEWRITER: lambat & natural ===
+_typeToInput(inputEl, finalText, cps = 18, onDone) {
+  if (!inputEl) { if (onDone) onDone(); return; }
+
+  // basis: ms per karakter dari cps
+  const base = Math.floor(1000 / Math.max(1, cps));
+  const len  = (finalText || "").length;
+
+  // adaptif: kalimat pendek → lebih lambat biar terasa "ngetik"
+  let msPerChar = base;
+  if (len < 20)      msPerChar = Math.floor(base * 1.8);
+  else if (len < 40) msPerChar = Math.floor(base * 1.4);
+
+  // batas aman
+  msPerChar = Math.min(200, Math.max(15, msPerChar));
+
+  // jitter kecil biar tidak seragam banget
+  const jitterPct = 0.15;
+
+  // hentikan typing sebelumnya pada input yang sama
+  if (inputEl._twTimer) clearTimeout(inputEl._twTimer);
+  inputEl.value = "";
+  let i = 0;
+
+  const step = () => {
+    if (!inputEl.isConnected) return;          // element sudah hilang dari DOM
+    inputEl.value += (finalText[i++] || "");
+    if (i < len) {
+      const jitter = Math.floor(msPerChar * jitterPct * Math.random());
+      inputEl._twTimer = setTimeout(step, msPerChar + jitter);
+    } else {
+      inputEl._twTimer = null;
+      if (onDone) onDone();
+    }
+  };
+  step();
+}
+
+_sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+_enqueueStreamEvent(evt) {
+  if (!this.translate) this.initTranslateState();
+  this.translate.evQueue.push(evt);
+  if (!this.translate.evtProcessing) this._drainStreamEvents();
+}
+
+// proses event satu-per-satu; jangan panggil renderSubsPage tiap event
+async _drainStreamEvents() {
+  const st = this.translate;
+  st.evtProcessing = true;
+  try {
+    while (st.evQueue.length) {
+      const evt = st.evQueue.shift();
+
+      // Debug JSON ikut menetes
+      this.appendMessage?.(evt);
+
+      if (evt.type === 'progress') {
+        const total = (st.subtitles || []).length || evt.total || 0;
+        const done  = evt.done || 0;
+        const bar = document.getElementById('ts-progressbar');
+        const lab = document.getElementById('ts-progresslabel');
+        const pct = total ? Math.round(done*100/total) : 0;
+        if (bar) bar.style.width = `${pct}%`;
+        if (lab) lab.textContent = `${pct}% (${done}/${total})`;
+        continue;
+      }
+
+      if (evt.type === 'result') {
+        const idx  = Number(evt.index);
+        const text = (evt.translation || evt.text || '').trim();
+
+        // update state
+        const row = st.subtitles?.find(r => r.index === idx);
+        if (row) row.trans = text;
+
+        // update DOM baris ini saja (tanpa re-render tabel)
+        const sel = `#ts-row-${idx} .ts-trans`;
+        let input = document.querySelector(sel);
+
+        // jika input belum ada, coba scroll lalu ambil lagi
+        if (!input) {
+          this._scrollToTsRow?.(idx);
+          await this._sleep(0);
+          input = document.querySelector(sel);
+        }
+
+        if (input && st.typingEnabled && text.length > 0 && text.length <= (st.typingMaxLen || 200)) {
+          await new Promise(res => this._typeToInput(input, text, st.typingCps || 12, res));
+        } else if (input) {
+          input.value = text;
+        }
+
+        this.updateTranslateProgress?.();
+        this._flashTsRow?.(idx);
+        this._scrollToTsRow?.(idx);
+
+        // jeda kosmetik antar-item dari GUI
+        const d = Number(st.typingDelayMs || 0);
+        if (d > 0) await this._sleep(d);
+        continue;
+      }
+
+      // event lain (begin/end/error) — hanya ditampilkan
+    }
+  } finally {
+    st.evtProcessing = false;
+  }
 }
 
 /** Highlight baris sebentar supaya kelihatan row yang update */
@@ -811,17 +921,15 @@ renderMessages(newItem = false) {
   const el = document.getElementById('ts-messages');
   if (!el) return;
 
-  // Hanya auto-scroll jika followResults = true
+  // auto-scroll kalau user aktifkan followResults
   const shouldStickBottom =
     this.translate.followResults && (newItem || this._isNearBottom(el));
 
-  // Tampilkan 50 terakhir agar terasa “streaming”
+  // tampilkan 50 event terakhir biar terasa "streaming"
   const last = (this.translate.messages || []).slice(-50);
   el.textContent = JSON.stringify(last, null, 2);
 
-  if (shouldStickBottom) {
-    el.scrollTop = el.scrollHeight;
-  }
+  if (shouldStickBottom) el.scrollTop = el.scrollHeight;
 }
 
 
@@ -878,7 +986,14 @@ renderMessages(newItem = false) {
 		batch: 20,
 		workers: 1,
 		timeout: 120,
+		typingEnabled: true,
+		typingCps: 35,        // ↓ pelan (~83 ms/karakter). Naikkan untuk lebih cepat.
+		typingMaxLen: 200,    // kalau >200 char, tempel instan (biar tidak terlalu lama)
+		typingDelayMs: 5,    // ↑ jeda antar item dari server (ms). 50–120 enak.
 		autosave: true,
+		// di dalam objek this.translate
+		evQueue: [],          // antrian event dari stream
+		evtProcessing: false, // sedang memproses antrian atau tidak
 		// exec
 		running: false,
 		abort: null,
@@ -1624,6 +1739,7 @@ _tsUpdateProgress(done, total) {
 }
 
 // ==================== TRANSLATE: STREAM START/RESUME/FILL ====================
+// === ADD/REPLACE: jalankan terjemahan STREAM (start/resume/fill) ===
 async tsStartStream(runMode='start') {
   if (!this.translate) this.initTranslateState();
   const st = this.translate;
@@ -1632,16 +1748,15 @@ async tsStartStream(runMode='start') {
   if (!st.apiKey)  { this.showNotification('API key kosong.', 'error'); return; }
 
   // Tentukan indeks target
-  const allIdx = (this.translate.subtitles || []).map(x => x.index);
-  const missing = (this.translate.subtitles || []).filter(x => !(x.trans||'').trim()).map(x => x.index);
+  const allIdx  = (st.subtitles || []).map(x => x.index);
+  const missing = (st.subtitles || []).filter(x => !(x.trans||'').trim()).map(x => x.index);
   let only = [];
-  if (runMode === 'fill') only = missing;
+  if      (runMode === 'fill')   only = missing;
   else if (runMode === 'resume') {
     if (!missing.length) { this.showNotification('Nothing to resume.', 'info'); return; }
     const firstGap = Math.min(...missing);
-    only = this.translate.subtitles.filter(x => x.index >= firstGap && !(x.trans||'').trim()).map(x => x.index);
-  } else {
-    // start: proses semua baris (biar konsisten dengan permintaanmu sebelumnya)
+    only = st.subtitles.filter(x => x.index >= firstGap && !(x.trans||'').trim()).map(x => x.index);
+  } else { // start
     only = allIdx;
   }
   if (!only.length) { this.showNotification('Tidak ada baris yang perlu diterjemahkan.', 'success'); return; }
@@ -1651,6 +1766,7 @@ async tsStartStream(runMode='start') {
     ? `/api/session/${this.currentSessionId}/translate/stream`
     : `/api/translate/stream`;
 
+  // FormData untuk STREAM (pakai batch & typing delay)
   const fd = new FormData();
   fd.append('api_key', st.apiKey);
   fd.append('target_lang', st.lang || 'id');
@@ -1661,15 +1777,17 @@ async tsStartStream(runMode='start') {
   fd.append('timeout', String(st.timeout || 120));
   fd.append('mode', st.style || 'dubbing');
   fd.append('only_indices', only.join(','));
+  fd.append('batch', String(st.batch || 20));                 // penting
+  fd.append('typing_delay_ms', String(st.typingDelayMs));
 
   if (hasSession) {
-    fd.append('prefer', 'original');                // paksa ambil SRT original di server
+    fd.append('prefer', 'original');                // ambil SRT original di server
     fd.append('autosave', st.autosave ? 'true':'false');
   } else {
-    // manual mode: kirim SRT sumber yang sudah ada di state
-    const src = (this.translate.originalSubs && this.translate.originalSubs.length)
-      ? this.translate.originalSubs
-      : this.translate.subtitles;
+    // manual mode: kirim SRT yang ada di state
+    const src = (st.originalSubs && st.originalSubs.length)
+      ? st.originalSubs
+      : st.subtitles;
     const srtText = (src || []).map(it => `${it.index}\n${it.start} --> ${it.end}\n${it.text||''}\n`).join('\n');
     if (!srtText.trim()) { this.showNotification('SRT belum dimuat. Klik Load dulu.', 'error'); return; }
     fd.append('srt_text', srtText);
@@ -1707,6 +1825,9 @@ async tsStartStream(runMode='start') {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
 
+    // init progress dari server (opsional)
+    this.appendMessage({ type:'begin', url, batch: st.batch, workers: st.workers });
+
     while (true) {
       const {value, done:drained} = await reader.read();
       if (drained) break;
@@ -1721,23 +1842,16 @@ async tsStartStream(runMode='start') {
         let evt;
         try { evt = JSON.parse(line); } catch { continue; }
 
-        // tampilkan di panel kanan SATU-PER-SATU
+        // tampilkan di panel kanan (debug/result)
         this.appendMessage(evt);
-		this.renderMessages(true); // true = force scroll
 
-        if (evt.type === 'result') {
-          // set hasil ke grid kiri
-          const idx = Number(evt.index);
-          const row = this.translate.subtitles.find(r => r.index === idx);
-          if (row) row.trans = (evt.translation || '').trim();
-          done += 1;
-          upd();
-          this.renderSubsPage(true); // keep scroll
-		  const input = document.querySelector(`#ts-row-${evt.index} .ts-trans`);
-		  if (input) input.value = row.trans;
-		  this._flashTsRow(evt.index);
-		  this._scrollToTsRow(evt.index);
-        }
+		if (evt.type === 'result' || evt.type === 'progress') {
+		  this._enqueueStreamEvent(evt);
+		  continue;
+		}
+
+		// event lain (begin/end/error) → tampilkan di panel kanan
+		this.appendMessage(evt);
       }
     }
 

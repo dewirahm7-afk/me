@@ -12,7 +12,6 @@ import os
 from core.translate import TranslateEngine
 from api.websockets import websocket_manager
 from core.diarization import DiarizationEngine
-from core.translation import TranslationEngine
 from core.tts_export import TTSExportEngine
 from core.session_manager import SessionManager
 
@@ -28,7 +27,6 @@ print(f"Engine files found: {[f.name for f in PROJECT_ROOT.glob('dracin*')] + [f
 
 # Now import should work
 from dracin_gender import main as diarization_main
-from deepseek_mt import translate_srt_realtime
 from dracindub import ensure_wav16
 
 print("✅ All engine imports successful!")
@@ -40,7 +38,6 @@ class ProcessingManager:
         
         # Initialize engines
         self.diarization_engine = DiarizationEngine()
-        self.translation_engine = TranslationEngine()
         self.tts_engine = TTSExportEngine()
     
     async def create_session(self, session_data: Dict[str, Any]) -> str:
