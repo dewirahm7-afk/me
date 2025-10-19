@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import uuid
+import re
+from datetime import datetime
 
 @dataclass
 class Session:
@@ -31,7 +33,30 @@ class SessionManager:
         self.sessions: Dict[str, Session] = {}
         self.session_file = workdir_base / "sessions.json"
         self._load_sessions()
-    
+
+    @staticmethod
+    def _slugify_filename(name: str, limit: int = 60) -> str:
+        """
+        Ambil nama file (tanpa ekstensi) lalu aman-kan untuk nama folder:
+        huruf/angka, titik, underscore, dash. Pangkas bila terlalu panjang.
+        """
+        base = (name or '').rsplit('.', 1)[0]
+        s = re.sub(r'[^a-zA-Z0-9._-]+', '_', base).strip('._-')
+        return s[:limit] or 'session'
+
+    @staticmethod
+    def _unique_under(root: Path, base: str) -> str:
+        """
+        Jika folder sudah ada, tambahkan -2, -3, dst hingga unik.
+        """
+        cand = base
+        i = 2
+        while (root / cand).exists():
+            cand = f"{base}-{i}"
+            i += 1
+        return cand
+
+
     def _load_sessions(self):
         """Load sessions from disk"""
         if self.session_file.exists():
@@ -64,19 +89,33 @@ class SessionManager:
             print(f"Error saving sessions: {e}")
     
     def create_session(self, video_name: str, srt_name: str) -> Session:
-        """Create new session"""
-        session_id = str(uuid.uuid4())
+        """Create new session with human-friendly id"""
+        # 1) bentuk basis nama dari video_name atau srt_name
+        src_name = video_name or srt_name or 'session'
+        slug = self._slugify_filename(src_name)
+
+        # 2) timestamp agar tersortir & unik
+        ts = datetime.now().strftime('%Y%m%d-%H%M')
+        base_id = f"{slug}__{ts}"
+
+        # 3) pastikan unik di workdir_base
+        session_id = self._unique_under(self.workdir_base, base_id)
+
+        # 4) buat folder kerja
         workdir = self.workdir_base / session_id
         workdir.mkdir(parents=True, exist_ok=True)
-        
+
         session = Session(
             id=session_id,
             workdir=workdir,
             status='created',
             created_at=time.time(),
-            updated_at=time.time()
+            updated_at=time.time(),
+            # simpan rujukan nama sumber (opsional)
+            video_path=None,
+            srt_path=None,
         )
-        
+
         self.sessions[session_id] = session
         self._save_sessions()
         return session

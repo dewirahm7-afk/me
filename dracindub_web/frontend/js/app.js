@@ -2102,10 +2102,12 @@ async loadEditingTab() {
 
         <div class="ml-auto flex items-center gap-2">
           <button id="ed-save" class="btn btn-primary px-3 py-1">Save</button>
-          <button id="ed-exp-male" class="btn btn-slate px-3 py-1">Export Male SRT</button>
-          <button id="ed-exp-female" class="btn btn-slate px-3 py-1">Export Female SRT</button>
-          <button id="ed-exp-unk" class="btn btn-slate px-3 py-1">Export Unknown SRT</button>
-          <button id="ed-exp-all" class="btn btn-slate px-3 py-1">Export All (zip)</button>
+          <button id="ed-exp-male" class="btn btn-slate px-3 py-1">Export Male</button>
+          <button id="ed-exp-female" class="btn btn-slate px-3 py-1">Export Female</button>
+          <button id="ed-exp-unk" class="btn btn-slate px-3 py-1">Export Unknown</button>
+          <button id="ed-exp-all" class="btn btn-slate px-3 py-1">Gender All (zip)</button>
+		  <button id="ed-exp-speaker" class="btn btn-slate px-3 py-1">Export Speaker Dipilih</button>
+		  <button id="ed-exp-speaker-zip" class="btn btn-slate px-3 py-1">Semua Speakers (zip)</button>
         </div>
       </div>
 
@@ -2175,7 +2177,18 @@ spkSel?.addEventListener('change', () => {
   $('ed-exp-female')?.addEventListener('click', () => this._edExport('female'));
   $('ed-exp-unk')?.addEventListener('click', () => this._edExport('unknown'));
   $('ed-exp-all')?.addEventListener('click', () => this._edExport('all'));
+$('ed-exp-speaker')?.addEventListener('click', () => {
+  const sel = document.getElementById('ed-speaker-select');
+  const spk = (sel?.value || '').trim();
+  if (!spk || spk === 'all') {
+    return this.showNotification('Pilih 1 speaker dulu di dropdown.', 'warning');
+  }
+  this._edExport('speaker', { speaker: spk });
+});
 
+$('ed-exp-speaker-zip')?.addEventListener('click', () => {
+  this._edExport('speaker_zip');
+});
   const v = $('ed-video');
   v?.addEventListener('timeupdate', () => this._edOnVideoTime(v.currentTime));
 }
@@ -2186,15 +2199,27 @@ _edPopulateSpeakerFilter(list) {
     document.getElementById('ed-speaker');
   if (!sel) return;
 
+  // daftar speaker dari backend (hanya yang non-empty)
   const speakers = Array.isArray(list) ? list.filter(Boolean) : [];
+
+  // hitung baris yang kosong
+  const rows = (this.editing?.rows || []);
+  const emptyCount = rows.filter(r => !((r.speaker || '').trim())).length;
+
   const current = (this.editing?.speakerFilter || 'all');
 
-  sel.innerHTML =
-    `<option value="all">All speakers</option>` +
-    speakers.map(s => `<option value="${s}">${s}</option>`).join('');
+  let html = `<option value="all">All speakers</option>`;
+  if (emptyCount > 0) {
+    html += `<option value="__EMPTY__">SPEAKER_* (kosong: ${emptyCount})</option>`;
+  }
+  html += speakers.map(s => `<option value="${this.escapeHtml(s)}">${this.escapeHtml(s)}</option>`).join('');
 
-  sel.value = speakers.includes(current) ? current : 'all';
+  sel.innerHTML = html;
+  // kalau pilihan sebelumnya masih valid, pertahankan
+  const valid = ['all','__EMPTY__',...speakers];
+  sel.value = valid.includes(current) ? current : 'all';
 }
+
 
 
 
@@ -2258,7 +2283,9 @@ async _edLoad(sessionId) {
 	// isi dropdown speaker (sekali saja, dari rows yang ada)
 	const speakers = [...new Set((this.editing.rows || [])
 	  .map(r => r.speaker).filter(Boolean))].sort();
-	this._edPopulateSpeakerFilter(speakers);
+	this._edPopulateSpeakerFilter(
+	  [...new Set((this.editing.rows || []).map(r => (r.speaker||'').trim()).filter(Boolean))].sort()
+	);
 
 	// render pertama
 	this._edFilterRender();
@@ -2281,7 +2308,9 @@ _edFilterRender(){
 
   ed.filtered = rows.filter(r => {
     const okG = (gf === 'all') || ((r.gender || 'unknown') === gf);
-    const okS = (sf === 'all') || ((r.speaker || '') === sf);
+	const okS = (sf === 'all')
+	  || (sf === '__EMPTY__' ? !((r.speaker || '').trim())
+							 : ((r.speaker || '') === sf));
     const okQ = !term || (r.translation || '').toLowerCase().includes(term) ||
                          (r.text || '').toLowerCase().includes(term);
     return okG && okS && okQ;
@@ -2448,7 +2477,7 @@ async _edSave() {
   }
 }
 
-async _edExport(mode) {
+async _edExport(mode, extra = {}) {
   const ed = this.editing;
   if (!ed.sessionId) return this.showNotification('No session.', 'warning');
   try {
@@ -2456,7 +2485,7 @@ async _edExport(mode) {
     const res = await fetch(`/api/session/${ed.sessionId}/editing/export`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ mode, reindex: true })
+      body: JSON.stringify({ mode, reindex: true, ...extra })
     });
     if (!res.ok) throw new Error(await res.text());
 

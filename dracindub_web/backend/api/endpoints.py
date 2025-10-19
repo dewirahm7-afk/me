@@ -9,7 +9,7 @@ from core.session_manager import session_manager
 
 from pydantic import BaseModel
 import json, re, tempfile, zipfile
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from fastapi import Request
 from starlette.responses import StreamingResponse, Response
@@ -1008,11 +1008,11 @@ def post_editing(session_id: str, data: EditSave):
 
     return {"status": "ok"}
 
-
 class ExportReq(BaseModel):
-    mode: str  # male/female/unknown/all
+    # mode lama: male|female|unknown|all ; mode baru: speaker|speaker_zip
+    mode: Literal['male','female','unknown','all','speaker','speaker_zip'] = 'male'
     reindex: bool = True
-
+    speaker: Optional[str] = None
 
 def _build_srt(rows, reindex=True):
     out = []
@@ -1025,7 +1025,13 @@ def _build_srt(rows, reindex=True):
         n += 1
     return "\r\n".join(out)
 
-
+def _safe_name(text: str) -> str:
+    # aman untuk nama file, hilangkan karakter aneh
+    t = (text or "unknown").strip()
+    t = re.sub(r"\s+", "_", t)
+    t = re.sub(r"[^\w\-\.]+", "", t)
+    return t or "unknown"
+    
 @router.post("/api/session/{session_id}/editing/export")
 def export_editing(session_id: str, req: ExportReq):
     d = Path("workspaces") / session_id
@@ -1033,30 +1039,79 @@ def export_editing(session_id: str, req: ExportReq):
     if not cache_p.exists():
         raise HTTPException(400, "No editing data")
 
-    rows = json.loads(cache_p.read_text(encoding="utf-8")).get("rows", [])
+    payload = json.loads(cache_p.read_text(encoding="utf-8"))
+    rows = payload.get("rows", [])
 
-    def sel(g):
+    def sel_gender(g: str):
+        g = (g or "unknown").lower()
         return [r for r in rows if (r.get("gender", "unknown").lower() == g)]
 
+    def sel_speaker(spk: str):
+        spk = (spk or "").strip()
+        return [r for r in rows if (r.get("speaker") or "").strip() == spk]
+
+    # --- gender (1 file) ---
     if req.mode in ("male", "female", "unknown"):
-        srt = _build_srt(sel(req.mode), req.reindex)
-        out = d / f"edited_translated_{req.mode}.srt"
+        srt = _build_srt(sel_gender(req.mode), req.reindex)
+        out = d / f"gender_{req.mode}.srt"
         out.write_text(srt, encoding="utf-8")
         return FileResponse(out, media_type="text/plain", filename=out.name)
 
-    # all -> zip tiga file
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
-        for g in ("male", "female", "unknown"):
-            srt = _build_srt(sel(g), req.reindex)
-            zf.writestr(f"edited_translated_{g}.srt", srt)
+    # --- speaker (1 file) ---
+    elif req.mode == "speaker":
+        if not req.speaker:
+            raise HTTPException(400, "Missing 'speaker' for mode=speaker")
+        group = sel_speaker(req.speaker)
+        if not group:
+            raise HTTPException(404, f"No rows for speaker: {req.speaker}")
+        srt = _build_srt(group, req.reindex)
+        safe = _safe_name(req.speaker)
+        out = d / f"{safe}.srt"
+        out.write_text(srt, encoding="utf-8")
+        return FileResponse(out, media_type="text/plain", filename=out.name)
 
-    return FileResponse(
-        tmp.name,
-        media_type="application/zip",
-        filename=f"{session_id}_srt_by_gender.zip",
-    )
+    # --- speaker_zip (banyak file, zip) ---
+    elif req.mode == "speaker_zip":
+        speakers = sorted({
+            (r.get("speaker") or "").strip()
+            for r in rows
+            if (r.get("speaker") or "").strip()
+        })
+        if not speakers:
+            raise HTTPException(404, "No speakers in data")
 
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            for spk in speakers:
+                group = sel_speaker(spk)
+                if not group:
+                    continue
+                srt = _build_srt(group, req.reindex)
+                arc = f"{_safe_name(spk)}.srt"
+                zf.writestr(arc, srt)
+
+        return FileResponse(
+            tmp.name,
+            media_type="application/zip",
+            filename=f"{session_id}_srt_by_speaker.zip",
+        )
+
+    # --- all (by gender -> zip tiga file) ---
+    elif req.mode == "all":
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            for g in ("male", "female", "unknown"):
+                srt = _build_srt(sel_gender(g), req.reindex)
+                zf.writestr(f"gender_{g}.srt", srt)
+
+        return FileResponse(
+            tmp.name,
+            media_type="application/zip",
+            filename=f"{session_id}_srt_by_gender.zip",
+        )
+
+    else:
+        raise HTTPException(400, f"Unknown export mode: {req.mode}")
 
 # =============================================================================
 # TAB 4: TTS & Export (trigger proses dubbing/replace audio)
