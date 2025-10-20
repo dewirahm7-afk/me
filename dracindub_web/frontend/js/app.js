@@ -90,7 +90,7 @@ class DracinApp {
         const helpBtn = document.getElementById('help');
         if (helpBtn) {
             helpBtn.addEventListener('click', () => {
-                window.open('https://github.com/dracindub/dracindub-web', '_blank');
+                window.open('https://www.youtube.com/@Dramapendekyangbagus', '_blank');
             });
         }
 
@@ -141,6 +141,21 @@ class DracinApp {
 
 
 	async loadTabContent(tabName) {
+	  // >>> ADD: jangan render ulang Tab Translate kalau sudah terpasang
+	  if (tabName === 'translate') {
+		const cont = document.getElementById('translate');
+		if (cont && cont.dataset.inited === '1') {
+		  // Sudah mounted: cukup aktifkan tab & refresh UI ringan
+		  this.activeTab = tabName;
+		  this.filterAndRenderSubs?.();
+		  this.updateTranslateProgress?.(
+			this.translate?.totalDone || 0,
+			this.translate?.totalAll  || 0
+		  );
+		  return; // <-- kunci: SKIP render ulang & SKIP fetch lagi
+		}
+	  }
+	  // <<< END ADD
 		this.showLoading(`Loading ${tabName.replace('-', ' ')}...`);
 		
 		try {
@@ -749,38 +764,43 @@ class DracinApp {
     }
 
 // Perbaiki method loadTranslateTab() untuk auto-load SRT
-async loadTranslateTab() {
-  const tab = document.getElementById('translate');
-  if (!tab) return;
-  tab.innerHTML = `
-    <div class="bg-gray-800 rounded-lg p-6">
-      <h2 class="text-2xl font-bold mb-6 text-green-400">
-        <i class="fas fa-language mr-2"></i>Translate
-      </h2>
-      <div class="text-center py-8">
-        <div class="loading-spinner mx-auto mb-4"></div>
-        <p class="text-gray-400">Loading Translation interface...</p>
-      </div>
-    </div>
-  `;
+	async loadTranslateTab() {
+	  const tab = document.getElementById('translate');
+	  if (!tab) return;
+	  tab.innerHTML = `
+		<div class="bg-gray-800 rounded-lg p-6">
+		  <h2 class="text-2xl font-bold mb-6 text-green-400">
+			<i class="fas fa-language mr-2"></i>Translate
+		  </h2>
+		  <div class="text-center py-8">
+			<div class="loading-spinner mx-auto mb-4"></div>
+			<p class="text-gray-400">Loading Translation interface...</p>
+		  </div>
+		</div>
+	  `;
 
-  // renderTranslateTab() SUDAH memanggil setupTranslateEvents() di dalamnya
-  this.renderTranslateTab();
+	  // renderTranslateTab() SUDAH memanggil setupTranslateEvents() di dalamnya
+	  this.renderTranslateTab();
 
-  // Auto-load dari session (opsional, hanya jika ada session)
-  if (this.currentSessionId) {
-    try {
-      const res  = await fetch(`/api/session/${this.currentSessionId}/srt?prefer=original`);
-      if (res.ok) {
-        const text  = await res.text();
-        const items = this.parseSRT(text);
-        this.translate.originalSubs = items.map(o => ({...o}));
-        this.translate.subtitles    = items.map(o => ({...o, trans: ''}));
-        this.filterAndRenderSubs?.();
-        this.showNotification('SRT loaded from session', 'success');
-      }
-    } catch {}
-  }
+	// Auto-load hanya jika BELUM ada data dan TIDAK sedang streaming
+	const st = this.translate || (this.initTranslateState(), this.translate);
+	if ((!Array.isArray(st.subtitles) || st.subtitles.length === 0) && !st.running) {
+	  if (this.currentSessionId) {
+		try {
+		  const res = await fetch(`/api/session/${this.currentSessionId}/srt?prefer=original`);
+		  if (res.ok) {
+			let text = await res.text();
+			// kalau backend kirim {srt: "..."} tetap dukung
+			try { const obj = JSON.parse(text); if (obj && obj.srt) text = obj.srt; } catch {}
+			const items = this.parseSRT(text);
+			st.originalSubs = items.map(o => ({ ...o }));
+			st.subtitles    = items.map(o => ({ ...o, trans: '' }));
+			this.filterAndRenderSubs?.();
+			this.showNotification('SRT loaded from session', 'success');
+		  }
+		} catch {}
+	  }
+	}
 }
 
 // === REPLACE: appendMessage + renderMessages ===
@@ -817,7 +837,13 @@ _typeToInput(inputEl, finalText, cps = 18, onDone) {
   let i = 0;
 
   const step = () => {
-    if (!inputEl.isConnected) return;          // element sudah hilang dari DOM
+	if (!inputEl.isConnected) {
+	  // elemen hilang (pindah tab / re-render). WAJIB resolve agar _drainStreamEvents tidak hang.
+	  if (inputEl._twTimer) clearTimeout(inputEl._twTimer);
+	  inputEl._twTimer = null;
+	  if (onDone) onDone();
+	  return;
+	}
     inputEl.value += (finalText[i++] || "");
     if (i < len) {
       const jitter = Math.floor(msPerChar * jitterPct * Math.random());
@@ -1128,6 +1154,7 @@ renderMessages(newItem = false) {
 		  </div>
 		</div>
 	  `;
+	  tabContent.dataset.inited = '1';
 
 	  this.setupTranslateEvents();
 	}
@@ -2102,12 +2129,14 @@ async loadEditingTab() {
 
         <div class="ml-auto flex items-center gap-2">
           <button id="ed-save" class="btn btn-primary px-3 py-1">Save</button>
-          <button id="ed-exp-male" class="btn btn-slate px-3 py-1">Export Male</button>
-          <button id="ed-exp-female" class="btn btn-slate px-3 py-1">Export Female</button>
-          <button id="ed-exp-unk" class="btn btn-slate px-3 py-1">Export Unknown</button>
-          <button id="ed-exp-all" class="btn btn-slate px-3 py-1">Gender All (zip)</button>
-		  <button id="ed-exp-speaker" class="btn btn-slate px-3 py-1">Export Speaker Dipilih</button>
-		  <button id="ed-exp-speaker-zip" class="btn btn-slate px-3 py-1">Semua Speakers (zip)</button>
+		  <button id="ed-merge" class="btn bg-green-500 px-3 py-1" disabled>Gabung Subtitle</button>
+          <button id="ed-exp-male" class="btn bg-pink-500 px-3 py-1">Export Male</button>
+          <button id="ed-exp-female" class="btn bg-pink-500 px-3 py-1">Export Female</button>
+          <button id="ed-exp-unk" class="btn bg-pink-500 px-3 py-1">Export Unknown</button>
+          <button id="ed-exp-all" class="btn bg-pink-500 px-3 py-1">Gender All (zip)</button>
+		  <button id="ed-exp-speaker" class="btn bg-orange-500 px-3 py-1">Export Speaker Dipilih</button>
+		  <button id="ed-exp-speaker-zip" class="btn bg-orange-500 px-3 py-1">Semua Speakers (zip)</button>
+		  <button id="ed-exp-full" class="btn bg-red-500 px-3 py-1">Export Full SRT</button>
         </div>
       </div>
 
@@ -2141,10 +2170,195 @@ async loadEditingTab() {
   }
 }
 
+_edUpdateMergeBtn() {
+  const btn = document.getElementById('ed-merge');
+  const ed = this.editing || {};
+  const n = (ed && ed.selected) ? ed.selected.size : 0; // aman tanpa optional chaining
+  if (btn) btn.disabled = (n < 2);
+}
+
+_edSecToSrt(sec) {
+  sec = Math.max(0, Number(sec) || 0);
+  const h  = Math.floor(sec / 3600);
+  const m  = Math.floor((sec % 3600) / 60);
+  const s  = Math.floor(sec % 60);
+  const ms = Math.round((sec - Math.floor(sec)) * 1000);
+  const pad = (x, n = 2) => String(x).padStart(n, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+}
+
+_edMergeSelected(){
+  const ed = this.editing || {};
+  if (!ed.selected || ed.selected.size < 2) {
+    return this.showNotification('Pilih minimal 2 baris untuk merge.', 'warning');
+  }
+
+  // Ambil rows terpilih
+  const idxs = [...ed.selected].sort((a,b)=>a-b);
+  const rows = (ed.rows || []);
+  const selRows = rows.filter(r => idxs.includes(r.index));
+  if (selRows.length < 2) return;
+
+  // Hitung waktu & teks
+  selRows.forEach(r => { // pastikan ada detik
+    if (r.startS == null || r.endS == null) { 
+      r.startS = this._edToSec(r.start); 
+      r.endS   = this._edToSec(r.end); 
+    }
+  });
+
+  const minStartS = Math.min(...selRows.map(r=>r.startS||0));
+  const maxEndS   = Math.max(...selRows.map(r=>r.endS||0));
+
+  // Gabung teks; hilangkan newline → 1 baris
+  const mergedText = selRows
+    .map(r => String(r.translation||'').replace(/\s+/g,' ').trim())
+    .filter(Boolean)
+    .join(' ');
+
+  // Baris hasil = pakai baris pertama terpilih (index terkecil)
+  const keepIdx = idxs[0];
+  const keepRow = rows.find(r => r.index === keepIdx);
+
+  // Update baris yang dipertahankan
+  keepRow.start  = this._edSecToSrt(minStartS);
+  keepRow.end    = this._edSecToSrt(maxEndS);
+  keepRow.startS = minStartS;
+  keepRow.endS   = maxEndS;
+  keepRow.translation = mergedText;
+
+  // Hapus baris lain yang digabung
+  const removeSet = new Set(idxs.slice(1));
+  ed.rows = rows.filter(r => !removeSet.has(r.index));
+
+  // Bersihkan pilihan & re-render
+  ed.selected.clear();
+  this._edIndexSeconds();
+  this._edFilterRender();
+  this._edAttachVttTrack();
+  this.showNotification(`Merged ${idxs.length} rows → #${keepIdx}`, 'success');
+}
+
+/* ================== CC (WebVTT) ================== */
+
+// "00:00:00,880" -> "00:00:00.880"
+_srtToVttTime(t) {
+  const m = String(t || '').match(/^(\d{2}):(\d{2}):(\d{2}),(\d{1,3})$/);
+  if (!m) return '00:00:00.000';
+  const ms = String(Number(m[4] || 0)).padStart(3, '0');
+  return `${m[1]}:${m[2]}:${m[3]}.${ms}`;
+}
+
+// Susun VTT dgn blok STYLE dan cue settings pakai persentase
+_buildVTTFromRows(rows, opts = {}) {
+  const o = Object.assign({}, this._vttOpts(), opts);
+
+  const out = [
+    'WEBVTT',
+    '',
+    'STYLE',
+    `::cue {
+      color: ${o.color} !important;
+      background-color: ${o.bg} !important;
+      font-size: ${o.fontSize} !important;
+      font-weight: ${o.weight} !important;
+      text-shadow: ${o.shadow};
+      line-height: ${o.lineHeight};
+      padding: .15em .35em;
+      border-radius: .25em;
+    }`,
+    ''
+  ];
+
+  (rows || []).forEach(r => {
+    const start = this._srtToVttTime(r.start);
+    const end   = this._srtToVttTime(r.end);
+    const spk   = (r.speaker || '').trim();
+    let text    = (r.translation || '').replace(/\r?\n/g, ' ').trim() || '-';
+    if (o.withSpeaker && spk) text = `${spk}: \n${text}`;
+
+    // snapLines=true → line:<integer> (fleksibel); false → line:<percent>
+    const lineToken = o.snapLines ? `line:${o.line}` : `line:${o.linePct}%`;
+    out.push(`${start} --> ${end} ${lineToken} position:${o.positionPct}% size:${o.sizePct}% align:${o.align}`);
+    out.push(text);
+    out.push('');
+  });
+
+  return out.join('\n');
+}
+
+_vttOpts() {
+  if (!this.vttOpts) this.vttOpts = {
+    // POSISI (fleksibel → multi-line)
+    snapLines: true,   // true => pakai "line:<integer>"
+    line: -4,          // -4 artinya 4 baris dari bawah (negatif = hitung dari bawah)
+    linePct: 86,       // fallback jika snapLines=false (tidak dipakai saat true)
+    positionPct: 50,
+    sizePct: 88,
+    align: 'center',
+    withSpeaker: true,
+
+    // STYLING
+    color: '#FFD700',                 // emas
+    bg: 'rgba(0,0,0,.70)',            // background cue
+    fontSize: 'clamp(14px,2.2vw,28px)',
+    weight: 400,
+    shadow: '0 2px 3px rgba(0,0,0,.9)',
+    lineHeight: 1.25,
+  };
+  return this.vttOpts;
+}
+
+
+_edAttachVttTrack() {
+  const v = document.getElementById('ed-video');
+  const rows = (this.editing?.rows) || [];
+  if (!v || !rows.length) return;
+
+  // bersihkan track sebelumnya
+  v.querySelectorAll('track[data-gen="vtt"]').forEach(tr => tr.remove());
+  if (this.editing?._vttUrl) {
+    try { URL.revokeObjectURL(this.editing._vttUrl); } catch {}
+    this.editing._vttUrl = null;
+  }
+
+  const vtt = this._buildVTTFromRows(rows, { withSpeaker: true });
+  const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }));
+
+  const tr = document.createElement('track');
+  tr.kind = 'subtitles';
+  tr.label = 'CC';
+  tr.srclang = 'id';
+  tr.default = true;
+  tr.src = url;
+  tr.dataset.gen = 'vtt';
+  tr.addEventListener('load', () => { try { tr.track.mode = 'showing'; } catch {} });
+  v.appendChild(tr);
+
+  try { v.load(); } catch {}
+  this.editing._vttUrl = url;
+}
+
+// Debounce kecil kalau nanti kamu panggil rebuild sering
+_edRebuildVttSoon() {
+  clearTimeout(this._vttTimer);
+  this._vttTimer = setTimeout(() => this._edAttachVttTrack(), 250);
+}
+_edInitVTTDefaults() {
+  const o = this._vttOpts();
+  // contoh set awal (boleh diubah)
+  o.snapLines = true;   // fleksibel multi-line
+  o.line = -5;          // naik/turun: -2 lebih bawah, -6 lebih atas
+  o.color = '#FFD700';  // warna teks
+  o.bg = 'rgba(0,0,0,.70)'; // latar
+  this._edAttachVttTrack();
+}
+
 _edBindEvents() {
   const $ = id => document.getElementById(id);
   const ed = this.editing;
-
+  $('ed-exp-full')?.addEventListener('click', () => this._edExport('full'));
+  $('ed-merge')?.addEventListener('click', () => this._edMergeSelected());
   $('ed-load-session')?.addEventListener('click', async () => {
     const id = $('ed-session-input')?.value.trim() || $('ed-session-select')?.value.trim();
     if (!id) return this.showNotification('Isi/pilih Session ID dulu.', 'warning');
@@ -2273,7 +2487,10 @@ async _edLoad(sessionId) {
     if (info) info.textContent = `Session: ${sessionId}`;
     const video = document.getElementById('ed-video');
     if (video) { video.src = ed.videoUrl; }
-    
+	this._edSyncListHeightToVideo();
+	this._edInitVTTDefaults();
+    this._edAttachVttTrack();
+	
     // lalu filter pertama kali
 	// seed default filter jika belum ada
 	if (!this.editing.genderFilter)  this.editing.genderFilter  = 'all';
@@ -2327,33 +2544,59 @@ _edRenderList() {
   const wrap = document.getElementById('ed-list');
   const ed = this.editing;
   if (!wrap) return;
+  wrap.style.overflowY = 'auto';
+
+  // atur tinggi maksimum otomatis (menggunakan tinggi viewport)
+  const rect = wrap.getBoundingClientRect();
+  const available = window.innerHeight - rect.top - 24; // 24px margin bawah
+  if (available > 200) wrap.style.maxHeight = available + 'px';
+
+  // update saat window di-resize
+  if (!this._edListResizeBound) {
+    this._edListResizeBound = () => {
+      const r = wrap.getBoundingClientRect();
+      const avail = window.innerHeight - r.top - 24;
+      if (avail > 200) wrap.style.maxHeight = avail + 'px';
+    };
+    window.addEventListener('resize', this._edListResizeBound);
+  }
 
   if (!ed.filtered.length) { wrap.innerHTML = `<div class="p-4 text-gray-400">No rows.</div>`; return; }
   const esc = s => String(s||'').replace(/[&<>"']/g,c=>({ '&':'&','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
   // 1 baris: [#id][time][gender][speaker][translation][play]
-  wrap.innerHTML = ed.filtered.map(r => `
-    <div class="ed-row grid items-center gap-2"
-         style="grid-template-columns:48px 220px 80px 85px 1fr 38px"
-         data-idx="${r.index}" id="row-${r.index}">
-      <div class="text-gray-400 font-mono">#${r.index}</div>
-      <div class="ed-time font-mono text-sm bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap">
-        ${r.start} <span class="opacity-60">→</span> ${r.end}
-      </div>
-      <select class="ed-gender bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs">
-        <option value="male" ${r.gender==='male'?'selected':''}>male</option>
-        <option value="female" ${r.gender==='female'?'selected':''}>female</option>
-        <option value="unknown" ${r.gender==='unknown'?'selected':''}>unknown</option>
-      </select>
-      <input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-full"
-             value="${esc(r.speaker||'')}" placeholder="SPEAKER_*"/>
-      <input class="ed-text bg-gray-800 border border-gray-700 text-green-400 rounded px-2 py-1 text-sm w-full
-                    whitespace-nowrap overflow-hidden text-ellipsis"
-             value="${esc(r.translation||'')}" placeholder="Translation…"/>
-      <button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
-    </div>
-  `).join('');
-
+	wrap.innerHTML = ed.filtered.map(r => `
+	  <div class="ed-row grid items-center gap-2"
+		   style="grid-template-columns:28px 48px 220px 70px 85px 1fr 38px"
+		   data-idx="${r.index}" id="row-${r.index}">
+		<input type="checkbox" class="ed-chk w-4 h-4" data-idx="${r.index}" />
+		<div class="text-gray-400 font-mono">#${r.index}</div>
+		<div class="ed-time font-mono text-sm bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap">
+		  ${r.start} <span class="opacity-60">→</span> ${r.end}
+		</div>
+		<select class="ed-gender bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs">
+		  <option value="male"   ${r.gender==='male'?'selected':''}>male</option>
+		  <option value="female" ${r.gender==='female'?'selected':''}>female</option>
+		  <option value="unknown" ${r.gender==='unknown'?'selected':''}>unknown</option>
+		</select>
+		<input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-full"
+			   value="${esc(r.speaker||'')}" placeholder="SPEAKER_*"/>
+		<input class="ed-text bg-gray-800 border border-gray-700 text-green-400 rounded px-2 py-1 text-sm w-full
+					  whitespace-nowrap overflow-hidden text-ellipsis"
+			   value="${esc(r.translation||'')}" placeholder="Translation…"/>
+		<button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
+	  </div>
+	`).join('');
+	this._edSyncListHeightToVideo();
+	ed.selected = ed.selected || new Set();
+	wrap.querySelectorAll('.ed-chk').forEach(chk => {
+	  chk.addEventListener('change', () => {
+		const idx = Number(chk.dataset.idx);
+		if (chk.checked) ed.selected.add(idx); else ed.selected.delete(idx);
+		this._edUpdateMergeBtn();
+	  });
+	});
+	this._edUpdateMergeBtn();
   // binding (tanpa re-render) — update data langsung
   wrap.querySelectorAll('.ed-text').forEach(inp=>{
     inp.addEventListener('input', e=>{
@@ -2411,6 +2654,42 @@ _edRebuildSpeakerFilterOptions() {
   };
 }
 
+// Samakan tinggi panel list (#ed-list) dengan tinggi video (#ed-video)
+_edSyncListHeightToVideo() {
+  const list  = document.getElementById('ed-list');
+  const video = document.getElementById('ed-video');
+  if (!list || !video) return;
+
+  const apply = () => {
+    const h = Math.round(video.getBoundingClientRect().height);
+    if (h > 0) {
+      list.style.height    = h + 'px';
+      list.style.maxHeight = h + 'px';
+      list.style.overflowY = 'auto';
+    }
+  };
+
+  // apply sekarang
+  apply();
+
+  // update saat metadata/bitmap masuk
+  if (!video._ccMetaBound) {
+    video.addEventListener('loadedmetadata', apply);
+    video.addEventListener('loadeddata', apply);
+    video._ccMetaBound = true;
+  }
+
+  // update kalau ukuran video berubah (responsive/layout berubah)
+  if (!this._videoResizeObs) {
+    try {
+      this._videoResizeObs = new ResizeObserver(apply);
+      this._videoResizeObs.observe(video);
+    } catch {
+      // fallback kalau ResizeObserver tidak ada
+      window.addEventListener('resize', apply);
+    }
+  }
+}
 
 _edOnVideoTime(t){
   const ed=this.editing; if(!ed?.rows?.length) return;
@@ -2439,16 +2718,33 @@ _edIndexSeconds(){
   });
 }
 
-// highlight baris aktif + autoscroll
-_edHighlight(idx, doFollow=true){
-  const ed=this.editing; if(!ed) return;
+// GANTI seluruh fungsi _edHighlight dengan versi ini
+_edHighlight(idx, doFollow = true) {
+  const ed = this.editing; if (!ed) return;
   if (ed.liveIndex === idx) return;
+
+  // hapus highlight lama & set yang baru
   if (ed.liveIndex) document.getElementById(`row-${ed.liveIndex}`)?.classList.remove('live');
   ed.liveIndex = idx;
   const rowEl = document.getElementById(`row-${idx}`);
   rowEl?.classList.add('live');
-  if (doFollow && ed.follow) rowEl?.scrollIntoView({block:'center', behavior:'smooth'});
+
+  // HANYA scroll kontainer list, bukan halaman
+  if (doFollow && ed.follow && rowEl) {
+    const list = document.getElementById('ed-list');
+    if (list) {
+      // posisi row relatif ke kontainer
+      const rowTopInList = rowEl.offsetTop - list.offsetTop;
+      // pusatkan baris di dalam viewport kontainer
+      const target = rowTopInList - Math.max(0, (list.clientHeight - rowEl.clientHeight) / 2);
+      list.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    } else {
+      // fallback kalau #ed-list tak ditemukan
+      rowEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
 }
+
 
 _edAutoResizeTextareas(){
   document.querySelectorAll('.ed-translation').forEach(t=>{
