@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dewi R7 - Auto Dubbing Studio</title>
-    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -217,14 +217,14 @@
             <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-4">
                     <h1 class="text-2xl font-bold text-blue-400">
-                        <i class="fas fa-dragon mr-2"></i>DracinDub Web
+                        <i class="fas fa-dragon mr-2"></i>Dewa Dracin
                     </h1>
                     <div class="text-sm text-gray-400">Auto Dubbing Studio v2.0</div>
                 </div>
                 
                 <div class="flex items-center space-x-4">
                     <div id="session-info" class="text-sm text-gray-300">
-                        No active session
+                        By Dewi R7
                     </div>
                     <div id="connection-status" class="flex items-center text-green-400">
                         <i class="fas fa-circle text-xs mr-1"></i>
@@ -254,6 +254,11 @@
                 <button data-tab="tts-export" class="tab-button px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 hover:border-gray-500 transition-colors flex items-center">
                     <i class="fas fa-file-export mr-2"></i>
                     TTS & Export
+                </button>
+                <!-- ADDED: OCR SRT Edit Tab Button -->
+                <button data-tab="ocr-edit" class="tab-button px-4 py-3 border-b-2 border-transparent hover:bg-gray-700 hover:border-gray-500 transition-colors flex items-center">
+                    <i class="fas fa-edit mr-2"></i>
+                    OCR SRT Edit
                 </button>
             </div>
         </div>
@@ -345,6 +350,19 @@
                 <div class="text-center py-12">
                     <div class="loading-spinner mx-auto mb-4"></div>
                     <p class="text-gray-400">Loading TTS & Export tab...</p>
+                </div>
+            </div>
+        </div>
+		
+        <!-- ADDED: OCR SRT Edit Tab -->
+        <div id="ocr-edit" class="tab-content">
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-2xl font-bold mb-6 text-blue-400">
+                    <i class="fas fa-edit mr-2"></i>OCR SRT Edit
+                </h2>
+                <div class="text-center py-12">
+                    <div class="loading-spinner mx-auto mb-4"></div>
+                    <p class="text-gray-400">Loading OCR SRT Edit tab...</p>
                 </div>
             </div>
         </div>
