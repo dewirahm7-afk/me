@@ -56,13 +56,13 @@ def build_system_prompt(style: str, target_lang: str) -> str:
             f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
             "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
             "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
-            "- **Untuk kalimat tanya, GUNAKAN tanda tanya (?)** meskipun tidak ada di teks sumber.\n"
-            "- **Untuk kalimat seru, GUNAKAN tanda seru (!)** meskipun tidak ada di teks sumber.\n"
+            "- Untuk kalimat tanya, GUNAKAN tanda tanya (?) meskipun tidak ada di teks sumber.\n"
+            "- Untuk kalimat seru, GUNAKAN tanda seru (!) meskipun tidak ada di teks sumber.\n"
             "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
             "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
             "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
             "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
-            "- **Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dll.**\n"
+            "- Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dsb.\n"
             "- Ubah 'Hmph' menjadi 'Hmm'.\n"
         )
     else:
@@ -71,13 +71,13 @@ def build_system_prompt(style: str, target_lang: str) -> str:
             f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
             "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
             "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
-            "- **Untuk kalimat tanya, GUNAKAN tanda tanya (?)** meskipun tidak ada di teks sumber.\n"
-            "- **Untuk kalimat seru, GUNAKAN tanda seru (!)** meskipun tidak ada di teks sumber.\n"
+            "- Untuk kalimat tanya, GUNAKAN tanda tanya (?) meskipun tidak ada di teks sumber.\n"
+            "- Untuk kalimat seru, GUNAKAN tanda seru (!) meskipun tidak ada di teks sumber.\n"
             "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
             "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
             "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
             "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
-            "- **Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dll.**\n"
+            "- Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dsb.\n"
             "- Ubah 'Hmph' menjadi 'Hmm'.\n"
         )
 

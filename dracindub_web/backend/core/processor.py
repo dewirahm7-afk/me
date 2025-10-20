@@ -1,9 +1,8 @@
 # backend/core/processor.py
 import asyncio
-import json
 import time
 from pathlib import Path
-from typing import Dict, Any, Callable, List, Optional
+from typing import Dict, Any, Callable, List, Optional, Tuple
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
@@ -14,6 +13,9 @@ from api.websockets import websocket_manager
 from core.diarization import DiarizationEngine
 from core.tts_export import TTSExportEngine
 from core.session_manager import SessionManager
+import json, numpy as np
+from speechbrain.inference import EncoderClassifier
+import shutil
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))  # <repo root>
 if ROOT not in sys.path:
@@ -30,6 +32,194 @@ from dracin_gender import main as diarization_main
 from dracindub import ensure_wav16
 
 print("✅ All engine imports successful!")
+
+def _extract_embeddings_ecapa(wav16k_path, time_spans, device='auto'):
+    import torch, torchaudio
+    from huggingface_hub import snapshot_download
+    from speechbrain.inference import EncoderClassifier  # (pretrained dialihkan)
+
+    if device == 'auto':
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    local_dir = Path(wav16k_path).parent / ".sb_model_ecapa"
+    try:
+        snapshot_download(
+            "speechbrain/spkrec-ecapa-voxceleb",
+            local_dir=str(local_dir),
+            local_dir_use_symlinks=False,  # copy, bukan symlink
+            token=False,                   # paksa anonymous (hindari token expired)
+        )
+    except Exception as e:
+        print(f"[ECAPA] snapshot_download(anon) warn: {e}")
+
+    classifier = EncoderClassifier.from_hparams(
+        source=str(local_dir),
+        run_opts={"device": device},
+    )
+
+    wav, sr = torchaudio.load(str(wav16k_path))
+    if sr != 16000:
+        wav = torchaudio.functional.resample(wav, sr, 16000)
+        sr = 16000
+
+    embs = []
+    for (start, end) in time_spans:
+        s = max(0, int(start * sr)); e = min(wav.shape[1], int(end * sr))
+        x = torch.nn.functional.pad(wav[:, s:e], (0, max(0, sr-(e-s)))) if e - s < sr else wav[:, s:e]
+        with torch.no_grad():
+            v = classifier.encode_batch(x).squeeze().cpu().numpy()
+        v = v / (np.linalg.norm(v) + 1e-8)
+        embs.append(v.astype(np.float32))
+
+    return np.stack(embs, axis=0) if embs else np.zeros((0, 192), np.float32)
+
+def _parse_time(t):
+    if isinstance(t, (int, float)): return float(t)
+    if isinstance(t, str):
+        t = t.strip()
+        if not t: return 0.0
+        p = t.replace(',', '.').split(':')
+        try:
+            if len(p) == 3: return int(p[0])*3600 + int(p[1])*60 + float(p[2])
+            if len(p) == 2: return int(p[0])*60 + float(p[1])
+            return float(p[0])
+        except Exception: return 0.0
+    return 0.0
+
+def _safe_speaker_key(seg):
+    for k in ('speaker','spk','spkid','spk_id','label'):
+        if k in seg: return k
+    return None
+
+def _gather_samples(segments, samples_per_spk=8, min_dur=1.0):
+    by = {}
+    for s in segments:
+        k = _safe_speaker_key(s)
+        if not k: continue
+        sp = s[k]
+        st = _parse_time(s.get('start', 0)); en = _parse_time(s.get('end', st))
+        if en - st < min_dur: continue
+        by.setdefault(sp, []).append((st, en, en-st))
+    for sp, lst in by.items():
+        lst.sort(key=lambda x: x[2], reverse=True)
+        by[sp] = [(a,b) for a,b,_ in lst[:samples_per_spk]]
+    return by
+
+def _cos(a, b):
+    return float((a*b).sum()) / (float(np.linalg.norm(a)) * float(np.linalg.norm(b)) + 1e-8)
+
+def _global_link_speakers(
+    seg_path: Path,
+    spk_path: Path,
+    wav16k_path: Path,
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
+    link_threshold: float = 0.82,
+    samples_per_spk: int = 8,
+    device: str = 'auto',
+) -> Tuple[dict, dict]:
+    with open(seg_path, 'r', encoding='utf-8') as f:
+        seg = json.load(f)
+    with open(spk_path, 'r', encoding='utf-8') as f:
+        spk = json.load(f)
+
+    segments = seg.get('segments') if isinstance(seg, dict) else seg
+    if not isinstance(segments, list):
+        raise ValueError("segments json must be a list or have 'segments' list")
+
+    samples = _gather_samples(segments, samples_per_spk=samples_per_spk)
+    local_spks = list(samples.keys())
+    if not local_spks:
+        return seg, spk
+
+    centroids = {}
+    for sp in local_spks:
+        e = _extract_embeddings_ecapa(wav16k_path, samples[sp], device=device)
+        if e.shape[0] == 0: continue
+        c = e.mean(axis=0); c = c / (np.linalg.norm(c) + 1e-8)
+        centroids[sp] = c
+
+    global_ids, global_vecs, mapping = [], [], {}
+    dur_by = {sp: sum(b-a for a,b in samples[sp]) for sp in local_spks}
+
+    for sp in sorted(local_spks, key=lambda x: dur_by.get(x, 0), reverse=True):
+        v = centroids.get(sp)
+        if v is None:
+            gid = f"SPK_{len(global_ids)+1:02d}"
+            global_ids.append(gid); global_vecs.append(None); mapping[sp] = gid
+            continue
+        best_i, best_sim = None, -1.0
+        for i, gvec in enumerate(global_vecs):
+            if gvec is None: continue
+            s = _cos(v, gvec)
+            if s > best_sim: best_sim = s; best_i = i
+        if best_i is not None and best_sim >= link_threshold:
+            gvec = global_vecs[best_i]
+            new = (gvec + v); new = new / (np.linalg.norm(new) + 1e-8)
+            global_vecs[best_i] = new
+            mapping[sp] = global_ids[best_i]
+        else:
+            gid = f"SPK_{len(global_ids)+1:02d}"
+            global_ids.append(gid); global_vecs.append(v); mapping[sp] = gid
+
+    if isinstance(max_speakers, int) and len(global_ids) > max_speakers:
+        def nearest_pair(vecs):
+            n = len(vecs); best = (None,None,-1.0)
+            for i in range(n):
+                for j in range(i+1,n):
+                    if vecs[i] is None or vecs[j] is None: continue
+                    s = _cos(vecs[i], vecs[j])
+                    if s > best[2]: best = (i,j,s)
+            return best
+        while len(global_ids) > max_speakers and len(global_ids) >= 2:
+            i,j,_ = nearest_pair(global_vecs)
+            if i is None: break
+            new = (global_vecs[i] + global_vecs[j]); new = new / (np.linalg.norm(new)+1e-8)
+            global_vecs[i] = new
+            g_j = global_ids[j]; g_i = global_ids[i]
+            for k,v in list(mapping.items()):
+                if v == g_j: mapping[k] = g_i
+            del global_vecs[j]; del global_ids[j]
+
+    seg_key = _safe_speaker_key(segments[0]) or 'speaker'
+    for s in segments:
+        sp = s.get(seg_key)
+        if isinstance(sp, list):
+            s[seg_key] = [mapping.get(x, x) for x in sp]
+        elif isinstance(sp, str):
+            s[seg_key] = mapping.get(sp, sp)
+
+    def _norm_spk_tbl(spk_obj):
+        if isinstance(spk_obj, dict) and 'speakers' in spk_obj:
+            tbl = spk_obj['speakers']
+        else:
+            tbl = spk_obj
+        if isinstance(tbl, list):
+            out = {}
+            for it in tbl:
+                spid = it.get('id') or it.get('label') or it.get('name')
+                if spid: out[spid] = {k:v for k,v in it.items() if k not in ('id','label','name')}
+            return out
+        elif isinstance(tbl, dict):
+            return tbl
+        return {}
+
+    spk_tbl = _norm_spk_tbl(spk)
+    merged, by_global = {}, {}
+    for loc,gid in mapping.items():
+        by_global.setdefault(gid, []).append(loc)
+
+    for gid, locals_ in by_global.items():
+        # ambil info non-unknown pertama
+        info = {}
+        for k in ('gender','voice','notes','age','accent'):
+            for x in locals_:
+                val = spk_tbl.get(x, {}).get(k)
+                if val not in (None,'','unknown'):
+                    info[k] = val; break
+        merged[gid] = info if info else {'gender': spk_tbl.get(locals_[0],{}).get('gender','unknown')}
+
+    return {'segments': segments}, {'speakers': merged}
 
 class ProcessingManager:
     def __init__(self):
@@ -185,6 +375,31 @@ class ProcessingManager:
         spk_path = Path(data["spkjson"])
         srt_path = Path(data["srt"]) if data.get("srt") else None
 
+        cfg = cfg or {}
+        if bool(cfg.get("link_global", True)):
+            try:
+                linked_seg, linked_spk = _global_link_speakers(
+                    seg_path, spk_path, Path(session.wav_16k),
+                    min_speakers=cfg.get("min_speakers"),
+                    max_speakers=cfg.get("max_speakers"),
+                    link_threshold=float(cfg.get("link_threshold", 0.82)),
+                    samples_per_spk=int(cfg.get("samples_per_spk", 8)),
+                    device='auto',
+                )
+                seg_link = seg_path.with_name(seg_path.stem + "_linked.json")
+                spk_link = spk_path.with_name(spk_path.stem + "_linked.json")
+                seg_link.write_text(json.dumps(linked_seg, ensure_ascii=False, indent=2), encoding='utf-8')
+                spk_link.write_text(json.dumps(linked_spk, ensure_ascii=False, indent=2), encoding='utf-8')
+                seg_compat = seg_link.with_name(seg_link.name.replace("_segments_linked.json", "_segments.json"))
+                spk_compat = spk_link.with_name(spk_link.name.replace("_speakers_linked.json", "_speakers.json"))
+                shutil.copyfile(seg_link, seg_compat)   # overwrite file lama dengan versi linked
+                shutil.copyfile(spk_link, spk_compat)
+                print("[GlobalLink] compat copies ->", seg_compat.name, spk_compat.name)
+                seg_path, spk_path = seg_link, spk_link
+                print("[GlobalLink] done ->", seg_link.name, spk_link.name)
+            except Exception as e:
+                print(f"[GlobalLink] skipped: {e}")
+        
         # ... simpan & broadcast
         self.session_manager.update_session(
             session_id,

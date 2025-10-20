@@ -18,7 +18,7 @@ from api.websockets import websocket_manager
 # 🔥 IMPORT ROUTER
 from api.endpoints import router as api_router
 
-app = FastAPI(title="DracinDub Web", version="2.0")
+app = FastAPI(title="Dewa Dracin", version="2.0")
 
 # CORS middleware
 app.add_middleware(
@@ -58,7 +58,7 @@ async def root():
         <!DOCTYPE html>
         <html>
         <head>
-            <title>DracinDub Web</title>
+            <title>Dewa Dracin</title>
             <style>
                 body { font-family: Arial, sans-serif; margin: 40px; }
                 .error { color: red; }
@@ -66,7 +66,7 @@ async def root():
             </style>
         </head>
         <body>
-            <h1>DracinDub Web - Auto Dubbing Studio</h1>
+            <h1>Dewa Dracin - Auto Dubbing Studio</h1>
             <div class="error">Frontend files not found. Please check the frontend directory.</div>
             <div class="info">Backend is running correctly. Frontend path: """ + str(FRONTEND_DIR) + """</div>
             <div class="info">API Test: <a href="/api/test">/api/test</a></div>
@@ -109,7 +109,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         websocket_manager.disconnect(client_id)
 
 if __name__ == "__main__":
-    print("Starting DracinDub Web Server...")
+    print("Starting Dewa Dracin Server...")
     print(f"Working directory: {os.getcwd()}")
     print(f"Python path: {os.environ.get('PYTHONPATH', 'Not set')}")
     
