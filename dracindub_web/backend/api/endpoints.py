@@ -808,6 +808,90 @@ def _best_overlap(seg_list: List[dict], a0: float, a1: float) -> Optional[dict]:
             best_ov, best = ov, s
     return best
 
+# ==== Assignment policy & helpers (baru) =====================================
+
+# Cara memilih speaker untuk 1 baris SRT:
+# - "overlap"              : pemenang = segmen dengan overlap terbesar (kondisi lama)
+# - "start" / "end"        : segmen yang meliputi start / end baris
+# - "midpoint"             : segmen yang meliputi titik tengah baris
+# - "majority_then_start"  : jika pemenang overlap >= MAJORITY, ambil dia; kalau tidak, fallback ke segmen yang meliputi START
+ASSIGN_POLICY = "majority_then_start"
+MAJORITY = 0.60          # 60% durasi baris
+SNAP_MS = 120            # jepit start/end baris ke boundary diarization terdekat jika selisih <= 120ms (0 = matikan)
+
+def _collect_boundaries(seg_list):
+    """Kumpulkan semua batas (start & end) segmen diarization sebagai list float terurut unik."""
+    b = []
+    for s in seg_list or []:
+        try:
+            b.append(float(s["start_s"]))
+            b.append(float(s["end_s"]))
+        except Exception:
+            pass
+    # unik + terurut
+    return sorted({x for x in b})
+
+def _snap_pair(a0: float, a1: float, boundaries: list, snap_ms: int = SNAP_MS):
+    """Jepit (a0,a1) ke boundary terdekat jika jarak <= SNAP_MS; anti kolaps interval."""
+    if not boundaries or not snap_ms or snap_ms <= 0:
+        return a0, a1
+    import bisect
+    thr = float(snap_ms) / 1000.0
+
+    def snap(x: float) -> float:
+        i = bisect.bisect_left(boundaries, x)
+        cand = []
+        if i > 0: cand.append(boundaries[i-1])
+        if i < len(boundaries): cand.append(boundaries[i])
+        for c in cand:
+            if abs(c - x) <= thr:
+                return c
+        return x
+
+    x0, x1 = snap(float(a0)), snap(float(a1))
+    # jangan sampai kebalik / nol durasi akibat snap
+    if x1 <= x0:
+        return a0, a1
+    return x0, x1
+
+def _pick_segment(seg_list, a0: float, a1: float):
+    """Pilih segmen diarization untuk [a0,a1] sesuai ASSIGN_POLICY."""
+    if not seg_list:
+        return None
+    a0 = float(a0); a1 = float(a1)
+    dur = max(1e-6, a1 - a0)
+
+    # pemenang overlap (dipakai di beberapa mode)
+    best, best_ov = None, 0.0
+    for s in seg_list:
+        b0, b1 = float(s["start_s"]), float(s["end_s"])
+        ov = max(0.0, min(a1, b1) - max(a0, b0))
+        if ov > best_ov:
+            best, best_ov = s, ov
+
+    mode = (ASSIGN_POLICY or "overlap").lower().strip()
+    if mode == "overlap":
+        return best
+
+    if mode in ("start", "end", "midpoint"):
+        x = a0 if mode == "start" else (a1 if mode == "end" else (a0 + a1) / 2.0)
+        for s in seg_list:
+            if float(s["start_s"]) <= x <= float(s["end_s"]):
+                return s
+        return best  # fallback
+
+    if mode == "majority_then_start":
+        if best and best_ov / dur >= float(MAJORITY):
+            return best
+        # fallback: segmen yang meliputi START
+        for s in seg_list:
+            if float(s["start_s"]) <= a0 <= float(s["end_s"]):
+                return s
+        return best
+
+    # default
+    return best
+
 # endpoints.py  — TAB 3
 @router.get("/api/session/{session_id}/editing")
 def get_editing(session_id: str):
@@ -906,16 +990,26 @@ def get_editing(session_id: str):
     # 3) Map diarization (speaker+gender) via overlap waktu
     # ------------------------------------------------------------------ #
     segs = _load_diarization_segments(d)
+    boundaries = _collect_boundaries(segs)
     rows = []
     for t in tran_rows:
-        s = _best_overlap(segs, float(t.get("start_s", 0.0)), float(t.get("end_s", 0.0))) if segs else None
+        a0 = float(t.get("start_s", 0.0))
+        a1 = float(t.get("end_s", 0.0))
+
+        # 1) Jepit ke boundary diarization agar selisih kecil tidak bikin salah speaker
+        a0s, a1s = _snap_pair(a0, a1, boundaries, SNAP_MS) if segs else (a0, a1)
+
+        # 2) Pilih segmen sesuai kebijakan (majority_then_start)
+        s = _pick_segment(segs, a0s, a1s) if segs else None
+
         speaker = (s.get("speaker") if s else None)
         g = ((s.get("gender") if s else "unknown") or "unknown").lower()
         if g not in ("male", "female", "unknown"):
             g = "unknown"
+
         rows.append({
             "index": int(t["index"]),
-            "start": t["start"],
+            "start": t["start"],  # UI tetap pakai timestamp SRT; mapping pakai a0s,a1s yang sudah snap
             "end": t["end"],
             "original": "",
             "translation": t.get("text") or "",
@@ -923,6 +1017,7 @@ def get_editing(session_id: str):
             "gender": g,
             "notes": ""
         })
+
 
     # ------------------------------------------------------------------ #
     # 4) Merge dengan cache jika ada (update field; tambahkan row yang tidak ada)
@@ -1010,7 +1105,7 @@ def post_editing(session_id: str, data: EditSave):
 
 class ExportReq(BaseModel):
     # mode lama: male|female|unknown|all ; mode baru: speaker|speaker_zip
-    mode: Literal['male','female','unknown','all','speaker','speaker_zip'] = 'male'
+    mode: Literal['male','female','unknown','all','speaker','speaker_zip','full'] = 'male'
     reindex: bool = True
     speaker: Optional[str] = None
 
@@ -1070,6 +1165,12 @@ def export_editing(session_id: str, req: ExportReq):
         out.write_text(srt, encoding="utf-8")
         return FileResponse(out, media_type="text/plain", filename=out.name)
 
+    elif req.mode == "full":
+        srt = _build_srt(rows, req.reindex)
+        out = d / f"{session_id}_full.srt"
+        out.write_text(srt, encoding="utf-8")
+        return FileResponse(out, media_type="text/plain", filename=out.name)
+    
     # --- speaker_zip (banyak file, zip) ---
     elif req.mode == "speaker_zip":
         speakers = sorted({
