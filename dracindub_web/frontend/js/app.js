@@ -5,7 +5,7 @@ class DracinApp {
         this.isConnected = false;
         this.baseUrl = '';
         this.activeTab = 'srt-processing';
-        
+        this.ocr = null;
         // Add these lines
         this.videoFile = null;
         this.srtFile = null;
@@ -64,6 +64,9 @@ class DracinApp {
                         e.preventDefault();
                         this.loadTab('tts-export');
                         break;
+					case '5': e.preventDefault();
+						this.loadTab('ocr-edit');
+						break;	
                 }
             }
         });
@@ -171,6 +174,9 @@ class DracinApp {
 					break;
 				case 'tts-export':
 					await this.loadTTSExportTab();
+					break;
+				case 'ocr-edit':
+					await this.loadOcrEditTab();
 					break;
 			}
 		} catch (error) {
@@ -3160,6 +3166,440 @@ async _edExport(mode, extra = {}) {
             logOutput.scrollTop = logOutput.scrollHeight;
         }
     }
+
+// ========= OCR EDITING V1 =========
+// ========= OK =========
+	/* ========= OCR — util kecil ========= */
+	_ocrToSec(s){
+	  if (typeof this._edToSec === 'function') return this._edToSec(s);
+	  const m = String(s||'').match(/(\d+):(\d+):(\d+),(\d+)/);
+	  if (!m) return 0;
+	  return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+m[4])/1000;
+	}
+	_ocrEsc(s){
+	  if (typeof this.escapeHtml === 'function') return this.escapeHtml(String(s||''));
+	  return String(s||'').replace(/[&<>\"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+	}
+
+	/* ========= OCR — state ========= */
+	initOcrState(){
+	  if (this.ocr) return;
+	  this.ocr = {
+		rows: [], filtered: [],
+		search: '', onlyWarn: false,
+		videoUrl: null, playUntil: null, liveIndex: null,
+		// CC/OSD controls
+		cc: { font: 18, bottomPct: 6, widthPct: 90 }  // px & persen dari bawah
+	  };
+	}
+
+	/* ========= OCR — UI utama (30:70, tinggi sama, OSD CC + kontrolnya) ========= */
+	async loadOcrEditTab(){
+	  this.initOcrState();
+	  const tab = document.getElementById('ocr-edit'); if (!tab) return;
+
+	  tab.innerHTML = `
+	  <div class="bg-gray-800 rounded-lg p-4 lg:p-6">
+		<div class="flex items-center justify-between mb-4">
+		  <h2 class="text-xl lg:text-2xl font-bold text-blue-400">
+			<i class="fas fa-broom mr-2"></i>Editing SRT OCR
+		  </h2>
+		  <div class="flex items-center gap-2">
+		  <!-- CC quick buttons -->
+<!-- CC width control -->
+<div class="mt-2 grid grid-cols-1 gap-3 text-xs text-gray-300">
+    <span class="min-w-[72px]">CC Width</span>
+    <input id="cc-width" type="range" min="40" max="100" step="1" class="flex-1" />
+    <span id="cc-width-val" class="w-10 text-right"></span>
+
+</div>
+			<div class="mt-2 flex items-center gap-2 text-xs text-gray-300">
+			  <button id="cc-up"    class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700">CC ↑</button>
+			  <button id="cc-down"  class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700">CC ↓</button>
+			  <button id="cc-plus"  class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700">+</button>
+			  <button id="cc-minus" class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700">−</button>
+			</div>
+			<button id="ocr-load-srt" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">
+			  <i class="fas fa-file-alt mr-2"></i>Load Subtitle
+			</button>
+			<button id="ocr-load-video" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">
+			  <i class="fas fa-video mr-2"></i>Load Film 9:16
+			</button>
+			<div class="hidden lg:flex items-center gap-2 ml-2">
+			  <input id="ocr-search" type="text" placeholder="Search (text only)"
+					 class="px-3 py-2 rounded bg-gray-700 focus:outline-none w-56" />
+			  <label class="inline-flex items-center gap-2 select-none text-sm">
+				<input id="ocr-only-warn" type="checkbox" class="accent-blue-500" /> Only warnings
+			  </label>
+			</div>
+			<button id="ocr-save" class="ml-2 px-3 py-2 rounded bg-green-700 hover:bg-green-600">
+			  <i class="fas fa-save mr-2"></i>Save
+			</button>
+			<button id="ocr-export" class="px-3 py-2 rounded bg-indigo-700 hover:bg-indigo-600">
+			  <i class="fas fa-download mr-2"></i>Export
+			</button>
+		  </div>
+		</div>
+
+		<div class="grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4">
+		  <!-- LEFT: video + CC overlay + kontrol CC -->
+		  <div class="bg-gray-700 rounded-lg p-3 h-[calc(100vh-220px)] flex flex-col">
+			<div class="relative w-full flex-1 bg-black rounded overflow-hidden flex items-center justify-center">
+			  <video id="ocr-video" class="h-full w-auto"
+					 style="aspect-ratio:9/16; object-fit:contain;"
+					 controls playsinline preload="metadata"></video>
+				<div id="ocr-osd"
+					 class="absolute left-1/2 -translate-x-1/2 text-center text-white
+							bg-black/60 px-3 py-2 rounded pointer-events-none leading-tight"
+					 style="word-break: break-word;"></div>
+			</div>
+			<!-- CC controls -->
+			<div class="mt-2 grid grid-cols-2 gap-3 text-xs text-gray-300">
+			  <label class="flex items-center gap-2">
+				<span class="min-w-[72px]">CC Font</span>
+				<input id="cc-font" type="range" min="12" max="40" step="1" class="flex-1" />
+				<span id="cc-font-val" class="w-8 text-right"></span>
+			  </label>
+			  <label class="flex items-center gap-2">
+				<span class="min-w-[72px]">CC Pos (↓/↑)</span>
+				<input id="cc-pos" type="range" min="0" max="50" step="1" class="flex-1" />
+				<span id="cc-pos-val" class="w-8 text-right"></span>
+			  </label>
+			</div>
+		  </div>
+
+		  <!-- RIGHT: list (scroll hanya di kanan) -->
+		  <div class="bg-gray-700 rounded-lg p-3 h-[calc(100vh-220px)] flex flex-col">
+			<div class="flex lg:hidden items-center gap-2 mb-2">
+			  <input id="ocr-search-m" type="text" placeholder="Search (text only)"
+					 class="px-3 py-2 rounded bg-gray-800 w-full" />
+			  <label class="inline-flex items-center gap-2 text-sm">
+				<input id="ocr-only-warn-m" type="checkbox" class="accent-blue-500" /> Only warnings
+			  </label>
+			</div>
+			<div id="ocr-list" class="flex-1 overflow-y-auto"></div>
+		  </div>
+		</div>
+	  </div>`;
+
+	  // set nilai default kontrol CC
+	  document.getElementById('cc-font').value = String(this.ocr.cc.font);
+	  document.getElementById('cc-font-val').textContent = String(this.ocr.cc.font);
+	  document.getElementById('cc-pos').value  = String(this.ocr.cc.bottomPct);
+	  document.getElementById('cc-pos-val').textContent  = String(this.ocr.cc.bottomPct)+'%';
+	  document.getElementById('cc-width').value = String(this.ocr.cc.widthPct);
+	  document.getElementById('cc-width-val').textContent = this.ocr.cc.widthPct + '%';
+
+	  this._ocrBindEvents();
+	  this._ocrRefreshOsdStyle();
+	  this._ocrRenderList();
+	}
+
+	/* ========= OCR — bind events ========= */
+	_ocrBindEvents(){
+	  const $ = (id) => document.getElementById(id);
+	  const v = $('ocr-video');
+	  if (v && !v._ocrBound){
+		v.addEventListener('timeupdate', ()=> this._ocrOnVideoTime(v.currentTime));
+		v._ocrBound = true;
+	  }
+	const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+	$('cc-up')?.addEventListener('click', ()=>{
+	  this.ocr.cc.bottomPct = clamp(this.ocr.cc.bottomPct + 2, 0, 50);  // naik = lebih besar
+	  $('cc-pos').value = String(this.ocr.cc.bottomPct);
+	  $('cc-pos-val').textContent = String(this.ocr.cc.bottomPct) + '%';
+	  this._ocrRefreshOsdStyle();
+	});
+	$('cc-down')?.addEventListener('click', ()=>{
+	  this.ocr.cc.bottomPct = clamp(this.ocr.cc.bottomPct - 2, 0, 50);  // turun = lebih kecil
+	  $('cc-pos').value = String(this.ocr.cc.bottomPct);
+	  $('cc-pos-val').textContent = String(this.ocr.cc.bottomPct) + '%';
+	  this._ocrRefreshOsdStyle();
+	});
+	$('cc-plus')?.addEventListener('click', ()=>{
+	  this.ocr.cc.font = clamp(this.ocr.cc.font + 2, 12, 40);
+	  $('cc-font').value = String(this.ocr.cc.font);
+	  $('cc-font-val').textContent = String(this.ocr.cc.font);
+	  this._ocrRefreshOsdStyle();
+	});
+	$('cc-minus')?.addEventListener('click', ()=>{
+	  this.ocr.cc.font = clamp(this.ocr.cc.font - 2, 12, 40);
+	  $('cc-font').value = String(this.ocr.cc.font);
+	  $('cc-font-val').textContent = String(this.ocr.cc.font);
+	  this._ocrRefreshOsdStyle();
+	});
+	$('cc-width')?.addEventListener('input', (e)=>{
+	  this.ocr.cc.widthPct = Number(e.target.value || 90);
+	  $('cc-width-val').textContent = this.ocr.cc.widthPct + '%';
+	  this._ocrRefreshOsdStyle();
+	});
+
+	  $('ocr-load-srt')?.addEventListener('click', ()=> this._ocrPromptLoadSrt());
+	  $('ocr-load-video')?.addEventListener('click', ()=> this._ocrPromptLoadVideo());
+
+	  const onSearch = (e)=>{ this.ocr.search = e.target.value||''; this._ocrRenderList(); };
+	  $('ocr-search')?.addEventListener('input', onSearch);
+	  $('ocr-search-m')?.addEventListener('input', onSearch);
+
+	  const onOnlyWarn = (e)=>{ this.ocr.onlyWarn = !!e.target.checked; this._ocrRenderList(); };
+	  $('ocr-only-warn')?.addEventListener('change', onOnlyWarn);
+	  $('ocr-only-warn-m')?.addEventListener('change', onOnlyWarn);
+
+	  $('ocr-save')?.addEventListener('click', ()=> this._ocrSaveSrt());
+	  $('ocr-export')?.addEventListener('click', ()=> this._ocrExportSrt());
+
+	  // CC controls
+	  $('cc-font')?.addEventListener('input', (e)=>{
+		this.ocr.cc.font = Number(e.target.value||18);
+		$('cc-font-val').textContent = String(this.ocr.cc.font);
+		this._ocrRefreshOsdStyle();
+	  });
+	  $('cc-pos')?.addEventListener('input', (e)=>{
+		this.ocr.cc.bottomPct = Number(e.target.value||4);
+		$('cc-pos-val').textContent = String(this.ocr.cc.bottomPct)+'%';
+		this._ocrRefreshOsdStyle();
+	  });
+
+	  // Delegation list
+	  const wrap = $('ocr-list');
+	  wrap?.addEventListener('click', (e)=>{
+		const btn = e.target.closest?.('[data-play]');
+		if (btn){ const idx = Number(btn.getAttribute('data-play')); this._ocrSeekToRow(idx, true); }
+	  });
+	  wrap?.addEventListener('input', (e)=>{
+		const inp = e.target.closest?.('input[data-idx]');
+		if (inp){
+		  const idx = Number(inp.getAttribute('data-idx'));
+		  const row = this.ocr.rows.find(r=>r.index===idx);
+		  if (row){
+			row.text = inp.value;                       // 1 baris
+			row.warn = this._ocrAnalyzeText(row.text);  // refresh warning
+			this._ocrRefreshRow(idx);
+		  }
+		}
+	  });
+	}
+
+	/* ========= OCR — loaders ========= */
+	async _ocrPromptLoadSrt(){
+	  this.initOcrState();
+	  const input = document.createElement('input'); input.type='file'; input.accept='.srt';
+	  input.onchange = async ()=>{
+		const f = input.files?.[0]; if (!f) return;
+		const text = await f.text();
+		const list = this.parseSRT(text);
+		this.ocr.rows = list.map(r=> ({
+		  ...r,
+		  startS: this._ocrToSec(r.start),
+		  endS:   this._ocrToSec(r.end),
+		  warn:   this._ocrAnalyzeText(r.text)
+		}));
+		this._ocrRenderList();
+		this.showNotification('SRT OCR loaded','success');
+	  };
+	  input.click();
+	}
+	async _ocrPromptLoadVideo(){
+	  const input = document.createElement('input'); input.type='file'; input.accept='video/*';
+	  input.onchange = ()=>{
+		const f = input.files?.[0]; if (!f) return;
+		const url = URL.createObjectURL(f);
+		const v = document.getElementById('ocr-video');
+		if (v){ v.src = url; this.ocr.videoUrl = url; }
+	  };
+	  input.click();
+	}
+
+	/* ========= OCR — warning rules (>=2 baris) ========= */
+	_ocrAnalyzeText(text){
+	  const warn = [];
+	  const t = String(text||'');
+	  const lines = t.split('\n');
+	  if (lines.length >= 2) warn.push('2+ lines');
+	  if (/[A-Za-z]/.test(t)) warn.push('Latin A-Z');
+	  if (/[ \t]/.test(t)) warn.push('Spaces');
+	  if (/[0-9]/.test(t)) warn.push('Digits');
+	  // CJK ratio optional
+	  const only = t.replace(/\s/g,'');
+	  const cjk = (only.match(/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]).length;
+	  const non = (only.match(/[^\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]).length;
+	  const ratio = (cjk + non) ? (cjk/(cjk+non)) : 1;
+	  if (ratio < 0.8) warn.push(`Low CJK ${(ratio*100).toFixed(0)}%`);
+	  return warn;
+	}
+
+	/* ========= OCR — render list (tanpa pagination, search teks saja, input 1 baris) ========= */
+	_ocrRenderList(){
+	  const oc=this.ocr; if(!oc) return;
+	  const wrap=document.getElementById('ocr-list'); if(!wrap) return;
+	  const q=(oc.search||'').trim().toLowerCase();
+
+	  // filter: onlyWarn + search HANYA pada teks
+	  const rows = (oc.rows||[]).filter(r=>{
+		const hasWarn = (r.warn && r.warn.length);
+		if (oc.onlyWarn && !hasWarn) return false;
+		if (!q) return true;
+		return (String(r.text||'').toLowerCase()).includes(q);
+	  });
+	  oc.filtered = rows;
+
+	  if (!rows.length){
+		wrap.innerHTML = `<div class="p-4 text-gray-300">No rows.</div>`;
+		return;
+	  }
+
+	  const esc = (s)=> (typeof this._ocrEsc === 'function' ? this._ocrEsc(s) : String(s||''));
+	  wrap.innerHTML = rows.map(r=>{
+		const oneLine = String(r.text||'').replace(/\n/g,' ');
+		// chip compact
+		const warnHtml = this._ocrWarnCompact(r.warn||[]);
+
+		return `
+		  <div id="ocr-row-${r.index}" class="mb-2 rounded bg-gray-800 p-2">
+			<div class="flex items-center gap-2 whitespace-nowrap">
+			  <!-- #no + time -->
+			  <div class="flex items-center gap-2 w-[210px] shrink-0">
+				<div class="font-mono text-xs bg-gray-900/60 px-2 py-1 rounded">#${r.index}</div>
+				<div class="font-mono text-xs text-gray-300">${esc(r.start)} → ${esc(r.end)}</div>
+			  </div>
+
+			  <!-- teks (1 baris, fleksibel) -->
+			  <input data-idx="${r.index}" type="text"
+					 class="flex-1 min-w-0 h-9 bg-gray-900 rounded px-2 outline-none"
+					 value="${esc(oneLine)}" />
+
+			  <!-- warning (compact, dibatasi supaya tidak mendorong tombol) -->
+			  <div id="ocr-warn-${r.index}"
+				   class="ml-2 shrink-0 max-w-[32%] overflow-hidden">
+				${warnHtml}
+			  </div>
+
+			  <!-- play -->
+			  <button data-play="${r.index}"
+					  class="ml-2 px-2 py-1 shrink-0 rounded bg-gray-700 hover:bg-gray-600 text-xs">
+				<i class="fas fa-play mr-1"></i>Play
+			  </button>
+			</div>
+		  </div>`;
+	  }).join('');
+	}
+
+
+	_ocrRefreshRow(idx){
+	  const row = this.ocr.rows.find(r=>r.index===idx); if (!row) return;
+	  const box = document.getElementById(`ocr-warn-${idx}`); if (!box) return;
+	  box.innerHTML = this._ocrWarnCompact(row.warn||[]);
+	}
+
+
+	/* ========= OCR — OSD CC style & text ========= */
+	_ocrRefreshOsdStyle(){
+	  const osd = document.getElementById('ocr-osd'); if (!osd) return;
+	  osd.style.fontSize = `${this.ocr.cc.font}px`;
+	  osd.style.bottom   = `${this.ocr.cc.bottomPct}%`;
+	  osd.style.width    = `${this.ocr.cc.widthPct}%`; // <= lebar kontrol
+	  osd.style.left     = '50%';
+	  osd.style.transform= 'translateX(-50%)';
+	  osd.style.whiteSpace = 'normal';
+	  osd.style.wordBreak  = 'break-word';
+	}
+
+	_ocrUpdateOsd(text){
+	  const osd = document.getElementById('ocr-osd'); if (!osd) return;
+	  osd.innerHTML = this._ocrEsc(String(text||'')).replace(/\n/g,'<br>');
+	}
+
+	// buat chip warning compact: tampilkan 2 pertama + "+N"
+	_ocrWarnCompact(warns){
+	  const esc = (s)=> (typeof this._ocrEsc === 'function' ? this._ocrEsc(s) : String(s||''));
+	  const list = Array.isArray(warns) ? warns : [];
+	  const title = esc(list.join(', '));
+	  const shown = list.slice(0, 2);
+	  const chips = shown.map(w => (
+		`<span class="inline-flex items-center px-2 py-0.5 rounded bg-red-600/20 text-red-300 text-xs">⚠ ${esc(w)}</span>`
+	  )).join('');
+	  const more = (list.length > 2)
+		? `<span class="inline-flex items-center px-2 py-0.5 rounded bg-red-600/20 text-red-300 text-xs cursor-default" title="${title}">+${list.length-2}</span>`
+		: '';
+	  // bungkus satu kontainer agar bisa diupdate parsial
+	  return `<div class="flex items-center gap-1" title="${title}">${chips}${more}</div>`;
+	}
+
+	/* ========= OCR — playback (auto-follow list only + update OSD) ========= */
+	_ocrSeekToRow(idx, play=false){
+	  const oc=this.ocr; const v=document.getElementById('ocr-video');
+	  const r=(oc.rows||[]).find(x=>x.index===idx); if(!r||!v) return;
+	  v.currentTime = (r.startS ?? this._ocrToSec(r.start)) + 0.001;
+	  this._ocrHighlight(idx);
+	  this._ocrScrollTo(idx);
+	  this._ocrUpdateOsd(r.text);
+	  if (play){ oc.playUntil = (r.endS ?? this._ocrToSec(r.end)); v.play(); }
+	}
+	_ocrOnVideoTime(t){
+	  const oc=this.ocr; if(!oc?.rows?.length) return;
+	  const r = oc.rows.find(x=> t>=(x.startS??this._ocrToSec(x.start)) && t < (x.endS??this._ocrToSec(x.end)) );
+	  if (r){
+		this._ocrHighlight(r.index);
+		if (oc.filtered?.some?.(x=>x.index===r.index)) this._ocrScrollTo(r.index); // follow list only
+		this._ocrUpdateOsd(r.text);
+	  } else {
+		this._ocrUpdateOsd('');
+	  }
+	  if (oc.playUntil != null && t >= oc.playUntil - 0.02){
+		const v=document.getElementById('ocr-video'); v?.pause(); oc.playUntil = null;
+	  }
+	}
+	_ocrScrollTo(idx){
+	  const wrap=document.getElementById('ocr-list');
+	  const row=document.getElementById(`ocr-row-${idx}`);
+	  if(!wrap||!row) return;
+	  const top=row.offsetTop - wrap.offsetTop;
+	  wrap.scrollTo({ top: Math.max(0, top - wrap.clientHeight*0.3), behavior:'smooth' });
+	}
+	_ocrHighlight(idx){
+	  const oc=this.ocr; if(!oc) return;
+	  if (oc.liveIndex===idx) return;
+	  if (oc.liveIndex!=null){
+		const prev=document.getElementById(`ocr-row-${oc.liveIndex}`);
+		prev?.classList.remove('ring-2','ring-blue-400');
+	  }
+	  const now=document.getElementById(`ocr-row-${idx}`);
+	  now?.classList.add('ring-2','ring-blue-400');
+	  oc.liveIndex = idx;
+	}
+
+	/* ========= OCR — save/export (download) ========= */
+	_ocrBuildSrt(renumber = true){
+	  // Ambil hanya baris yang masih punya teks (non-kosong setelah trim)
+	  const rows = (this.ocr.rows || []).filter(r => (String(r.text||'').trim().length > 0));
+
+	  let n = 1;
+	  return rows.map(r => {
+		const idx = renumber ? (n++) : r.index;
+		const txt = String(r.text || '');
+		return `${idx}\n${r.start} --> ${r.end}\n${txt}\n`;
+	  }).join('\n');
+	}
+	_ocrSaveSrt(){
+	  const srt = this._ocrBuildSrt(true);  // renumber
+	  this._ocrDownload('ocr_cleaned.srt', srt);
+	  this.showNotification('Saved ocr_cleaned.srt','success');
+	}
+	_ocrExportSrt(){
+	  const ts=new Date(), pad=n=>String(n).padStart(2,'0');
+	  const name=`ocr_cleaned_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.srt`;
+	  const srt=this._ocrBuildSrt(true);    // renumber
+	  this._ocrDownload(name, srt);
+	  this.showNotification(`Exported ${name}`,'success');
+	}
+
+	_ocrDownload(name, text){
+	  const blob=new Blob([text], {type:'text/plain'}); const url=URL.createObjectURL(blob);
+	  const a=document.createElement('a'); a.href=url; a.download=name; a.click();
+	  setTimeout(()=> URL.revokeObjectURL(url), 1000);
+	}
+
 }
 
 // Initialize app when DOM is loaded
