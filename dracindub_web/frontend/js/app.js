@@ -9,7 +9,7 @@ class DracinApp {
         // Add these lines
         this.videoFile = null;
         this.srtFile = null;
-        
+        this.exMap = { global_nudge_ms: 0, row_nudges: {} };
         this.initializeApp();
     }
 
@@ -62,9 +62,10 @@ class DracinApp {
                         break;
                     case '4':
                         e.preventDefault();
-                        this.loadTab('tts-export');
+                        this.loadTab('export');
                         break;
-					case '5': e.preventDefault();
+					case '5':
+						e.preventDefault();
 						this.loadTab('ocr-edit');
 						break;	
                 }
@@ -172,8 +173,8 @@ class DracinApp {
 				case 'editing':
 					await this.loadEditingTab();
 					break;
-				case 'tts-export':
-					await this.loadTTSExportTab();
+				case 'export':
+					await this.loadExportTab();   // <-- tambahkan baris ini
 					break;
 				case 'ocr-edit':
 					await this.loadOcrEditTab();
@@ -205,7 +206,6 @@ class DracinApp {
 	  // langsung render UI + bind
 	  this.renderSRTProcessingTab();
 	}
-
 
     renderSRTProcessingTab() {
         const tabContent = document.getElementById('srt-processing');
@@ -284,6 +284,44 @@ class DracinApp {
                             <input id="top-n" type="number" value="6" 
                                    class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 text-white">
                         </div>
+							<!-- —— Global Linking Settings —— -->
+							<div class="col-span-1 md:col-span-2 border-t border-gray-600 pt-3 mt-2"></div>
+
+							<div class="flex items-center">
+							  <input id="link-global" type="checkbox" class="mr-2" checked>
+							  <label for="link-global" class="text-gray-300">Enable Global Speaker Linking</label>
+							</div>
+
+							<div>
+							  <label class="block text-sm font-medium mb-2 text-gray-300">link_threshold</label>
+							  <input id="link-threshold" type="number" min="0" max="1" step="0.01" value="0.86"
+									 class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 text-white">
+							</div>
+
+							<div>
+							  <label class="block text-sm font-medium mb-2 text-gray-300">samples_per_spk</label>
+							  <input id="samples-per-spk" type="number" min="1" step="1" value="8"
+									 class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 text-white">
+							</div>
+
+							<div>
+							  <label class="block text-sm font-medium mb-2 text-gray-300">min_speakers (opsional)</label>
+							  <input id="min-speakers" type="number" min="1" step="1"
+									 class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 text-white">
+							</div>
+
+							<div>
+							  <label class="block text-sm font-medium mb-2 text-gray-300">max_speakers (opsional)</label>
+							  <input id="max-speakers" type="number" min="1" step="1"
+									 class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 text-white">
+							</div>
+
+							<div>
+							  <label class="block text-sm font-medium mb-2 text-gray-300">min_sample_dur (detik)</label>
+							  <input id="min-sample-dur" type="number" min="0.2" step="0.1" value="1.0"
+									 class="w-full px-3 py-2 bg-gray-600 rounded border border-gray-500 text-white">
+							</div>
+
                         <div class="flex items-center mt-2">
                             <input id="use-gpu" type="checkbox" id="use-gpu" checked class="mr-2 w-4 h-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400">
                             <label for="use-gpu" class="text-gray-300">Use GPU for Diarization</label>
@@ -621,6 +659,20 @@ class DracinApp {
         use_gpu,
         top_n: String(top_n),
       });
+	  
+		const link_global     = document.getElementById('link-global')?.checked ? 'true' : 'false';
+		const link_threshold  = document.getElementById('link-threshold')?.value || '0.86';
+		const samples_per_spk = document.getElementById('samples-per-spk')?.value || '8';
+		const min_speakers    = document.getElementById('min-speakers')?.value || '';
+		const max_speakers    = document.getElementById('max-speakers')?.value || '';
+		const min_sample_dur  = document.getElementById('min-sample-dur')?.value || '1.0';
+
+		body.append('link_global', link_global);
+		body.append('link_threshold', String(link_threshold));
+		body.append('samples_per_spk', String(samples_per_spk));
+		if (min_speakers) body.append('min_speakers', String(parseInt(min_speakers,10)));
+		if (max_speakers) body.append('max_speakers', String(parseInt(max_speakers,10)));
+		body.append('min_sample_dur', String(min_sample_dur));
 
       try {
         this.appendLog?.('Running diarization...');
@@ -1004,7 +1056,7 @@ renderMessages(newItem = false) {
 		srtText: "",
 		// ui
 		page: 1,
-		size: 100,
+		size: 7000,
 		follow: true,
 		search: "",
 		followSubs: true,
@@ -1015,7 +1067,7 @@ renderMessages(newItem = false) {
 		engine: "llm",
 		temperature: 0.1,
 		top_p: 0.3,
-		batch: 20,
+		batch: 30,
 		workers: 1,
 		timeout: 120,
 		typingEnabled: true,
@@ -1140,7 +1192,7 @@ renderMessages(newItem = false) {
 					<input id="ts-page" type="number" min="1" value="${st.page}" class="border border-gray-600 bg-gray-700 text-white rounded px-1 py-1 w-10 text-xs" />
 					<span class="text-xs text-gray-300">/<span id="ts-pages">1</span></span>
 					<select id="ts-size" class="border border-gray-600 bg-gray-700 text-white rounded px-1 py-1 text-xs w-16">
-					  ${[50,100,200,500].map(n=>`<option value="${n}" ${st.size===n?'selected':''}>${n}</option>`).join('')}
+					  ${[100,500,1000,3000,7000].map(n=>`<option value="${n}" ${st.size===n?'selected':''}>${n}</option>`).join('')}
 					</select>
 					<label class="inline-flex items-center gap-1">
 					  <input id="ts-follow" type="checkbox" ${st.follow?'checked':''} class="w-3 h-3 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-400" />
@@ -1192,7 +1244,7 @@ setupTranslateEvents() {
 
   // -- search & paging --
   $('ts-search')?.addEventListener('input', () => { this.translate.search = $('ts-search').value.trim(); this.filterAndRenderSubs(); });
-  $('ts-size')?.addEventListener('change', () => { this.translate.size = Number($('ts-size').value) || 100; this.translate.page = 1; this.renderSubsPage(); });
+  $('ts-size')?.addEventListener('change', () => { this.translate.size = Number($('ts-size').value) || 7000; this.translate.page = 1; this.renderSubsPage(); });
   $('ts-page')?.addEventListener('change', () => { this.translate.page = Math.max(1, Number($('ts-page').value || 1)); this.renderSubsPage(); });
   $('ts-prev')?.addEventListener('click',  () => { this.translate.page = Math.max(1, this.translate.page - 1); this.renderSubsPage(); });
   $('ts-nextpage')?.addEventListener('click', () => { this.translate.page = Math.min(this.totalPages || 1, this.translate.page + 1); this.renderSubsPage(); });
@@ -1307,7 +1359,7 @@ setupTranslateEvents() {
 
 	  // Simpan konfigurasi
 	  st.apiKey      = (apiKeyEl?.value || '').trim();
-	  st.batch       = Number(batchEl?.value || 20);
+	  st.batch       = Number(batchEl?.value || 30);
 	  st.workers     = Number(workEl?.value || 1);
 	  st.temperature = Number(tempEl?.value || 0.1);
 	  st.top_p       = Number(toppEl?.value || 0.3);
@@ -1810,7 +1862,7 @@ async tsStartStream(runMode='start') {
   fd.append('timeout', String(st.timeout || 120));
   fd.append('mode', st.style || 'dubbing');
   fd.append('only_indices', only.join(','));
-  fd.append('batch', String(st.batch || 20));                 // penting
+  fd.append('batch', String(st.batch || 30));                 // penting
   fd.append('typing_delay_ms', String(st.typingDelayMs));
 
   if (hasSession) {
@@ -2071,6 +2123,292 @@ renderMessages(forceScroll = false) {
  *  TAB 3 — EDITING (FULL BLOCK)
  *  (Semua method di bawah ini berada DI DALAM class DracinApp)
  * =========================== */
+// === ADD: init Bulk UI sekali setelah _edLoad() ===
+_edInitBulkUI() {
+  const ed = this.editing || (this.editing = {});
+  ed.selected  = ed.selected  || new Set();
+  ed.bulkScope = ed.bulkScope || 'selected';
+
+  const $ = (id) => document.getElementById(id);
+
+  $('#ed-select-shown')?.addEventListener('click', () => this._edSelectShown(true));
+  $('#ed-clear-selection')?.addEventListener('click', () => this._edSelectShown(false));
+  $('#ed-invert-selection')?.addEventListener('click', () => this._edInvertSelection());
+
+  document.querySelectorAll('input[name="ed-bulk-scope"]').forEach(radio => {
+    radio.addEventListener('change', (e) => { ed.bulkScope = e.target.value; });
+  });
+
+	// master checkbox: select/clear all shown
+	const m = document.getElementById('ed-master-chk');
+	if (m && !m._bound) {
+	  m._bound = true;
+	  m.addEventListener('change', (e) => this._edMasterToggle(e.target.checked));
+	}
+
+  // Gender bulk
+  [['ed-bulk-g-m','male'], ['ed-bulk-g-f','female'], ['ed-bulk-g-u','unknown']].forEach(([id,g]) => {
+    $(id)?.addEventListener('click', () => this._edBulkSetGender(g));
+  });
+
+  // Speaker bulk
+  $('#ed-bulk-set-speaker')?.addEventListener('click', () => {
+    const name = ($('#ed-bulk-speaker')?.value || '').trim();
+    if (!name) return this.showNotification('Isi speaker dulu.', 'warning');
+    this._edBulkSetSpeaker(name);
+  });
+  $('#ed-bulk-clear-speaker')?.addEventListener('click', () => this._edBulkSetSpeaker(''));
+
+  // Replace speaker (find/replace)
+  $('#ed-bulk-replace')?.addEventListener('click', () => {
+    const f = ($('#ed-bulk-find')?.value || '');
+    const r = ($('#ed-bulk-repl')?.value || '');
+    this._edBulkReplaceSpeaker(f, r);
+  });
+
+  this._edUpdateSelCount();
+}
+
+// Toggle master: pilih/bersihkan semua yang sedang tampil (shown)
+_edMasterToggle(checked) {
+  const ed = this.editing || (this.editing = {});
+  ed.selected = ed.selected || new Set();
+  const shown = (ed.filtered || []).map(r => r.index);
+  for (const i of shown) checked ? ed.selected.add(i) : ed.selected.delete(i);
+  this._edUpdateSelCount?.();
+  this._edUpdateMasterChk?.();
+  this._edRenderList?.(); // supaya checkbox di baris ikut sinkron
+}
+
+// Update status master (checked / indeterminate)
+_edUpdateMasterChk() {
+  const ed = this.editing || {};
+  const master = document.getElementById('ed-master-chk');
+  if (!master) return;
+
+  const shown = (ed.filtered || []).map(r => r.index);
+  let nSel = 0;
+  for (const i of shown) if (ed.selected?.has(i)) nSel++;
+
+  master.indeterminate = shown.length > 0 && nSel > 0 && nSel < shown.length;
+  master.checked = shown.length > 0 && nSel === shown.length;
+}
+
+// === ADD: util untuk ambil target index sesuai scope ===
+_edTargetIndices() {
+  const ed = this.editing || {};
+  const onlyEmpty = document.getElementById('ed-only-empty')?.checked;
+  let idxs = [];
+
+  if ((ed.bulkScope || 'selected') === 'shown') {
+    idxs = (ed.filtered || []).map(r => r.index);
+  } else {
+    idxs = Array.from(ed.selected || []);
+  }
+
+  if (onlyEmpty) {
+    const rows = ed.rows || [];
+    idxs = idxs.filter(i => {
+      const r = rows.find(x => x.index === i);
+      return !((r?.speaker || '').trim());
+    });
+  }
+  return idxs;
+}
+
+// === ADD: bulk set gender ===
+_edBulkSetGender(g) {
+  const ed = this.editing || {};
+  const idxs = this._edTargetIndices();
+  if (!idxs.length) return this.showNotification('Tidak ada baris terpilih/tersaring.', 'info');
+
+  const patches = [];
+  (ed.rows || []).forEach(r => {
+    if (!idxs.includes(r.index)) return;
+    const before = r.gender || 'unknown';
+    if (before !== g) {
+      patches.push({ idx:r.index, key:'gender', before, after:g });
+      r.gender = g;
+    }
+  });
+
+  this._edFilterRender();
+  this._edRebuildVttSoon?.();
+  this._edUpdateSelCount?.();
+  if (patches.length) this._edPushHistory(`Bulk gender → ${g}`, patches);
+}
+
+// === ADD: bulk set / clear speaker ===
+_edBulkSetSpeaker(name) {
+  const ed   = this.editing || {};
+  const idxs = this._edTargetIndicesSelected();  // langkah 3
+  if (!idxs.length) {
+    this.showNotification?.('Pilih baris dulu (pakai Check all kalau mau semuanya).', 'info');
+    return;
+  }
+
+  const val = (name || '').trim() || null;
+
+  // (opsional) untuk Undo/Redo kalau kamu sudah aktifkan modul history
+  const patches = [];
+
+  (ed.rows || []).forEach(r => {
+    if (!idxs.includes(r.index)) return;
+    const before = r.speaker || null;
+    if (before !== val) {
+      r.speaker = val;
+      patches.push?.({ idx:r.index, key:'speaker', before, after:val });
+    }
+  });
+
+  // refresh daftar speaker (untuk filter), lalu re-render list
+  ed.speakers = [...new Set((ed.rows||[])
+                  .map(x => (x.speaker||'').trim())
+                  .filter(Boolean))].sort();
+  this._edPopulateSpeakerFilter?.(ed.speakers);
+
+  // re-render supaya warna input speaker ikut update
+  this._edFilterRender?.();
+
+  // sync UI kecil
+  this._edUpdateSelCount?.();
+  this._edUpdateMasterChk?.();
+
+  // (opsional) catat history kalau ada
+  if (patches.length && this._edPushHistory) {
+    this._edPushHistory(`Bulk speaker → ${val||'(clear)'}`, patches);
+  }
+
+  this.showNotification?.(`Speaker di-set untuk ${idxs.length} baris.`, 'success');
+}
+
+
+// === ADD: bulk find/replace speaker (simple replace, case-sensitive) ===
+_edBulkReplaceSpeaker(find, repl) {
+  const ed = this.editing || {};
+  const idxs = this._edTargetIndices();
+  if (!idxs.length) return this.showNotification('Tidak ada baris terpilih/tersaring.', 'info');
+
+  const patches = [];
+  (ed.rows || []).forEach(r => {
+    if (!idxs.includes(r.index)) return;
+    const before = r.speaker || '';
+    const after  = (before.replaceAll(find, repl)).trim() || null;
+    if (before !== after) {
+      patches.push({ idx:r.index, key:'speaker', before, after });
+      r.speaker = after;
+    }
+  });
+
+  ed.speakers = [...new Set((ed.rows||[]).map(r => (r.speaker||'').trim()).filter(Boolean))].sort();
+  this._edPopulateSpeakerFilter(ed.speakers);
+  this._edFilterRender();
+  this._edUpdateSelCount?.();
+  if (patches.length) this._edPushHistory(`Replace speaker "${find}"→"${repl}"`, patches);
+}
+
+// === ADD: helpers selection ===
+_edSelectShown(checked) {
+  const ed = this.editing || {};
+  ed.selected = ed.selected || new Set();
+  const shown = (ed.filtered || []).map(r => r.index);
+  for (const i of shown) checked ? ed.selected.add(i) : ed.selected.delete(i);
+  this._edRenderList?.();
+  this._edUpdateSelCount();
+  this._edUpdateMasterChk?.();
+}
+
+_edInvertSelection() {
+  const ed = this.editing || {};
+  ed.selected = ed.selected || new Set();
+  const shown = (ed.filtered || []).map(r => r.index);
+  for (const i of shown) ed.selected.has(i) ? ed.selected.delete(i) : ed.selected.add(i);
+  this._edRenderList?.();
+  this._edUpdateSelCount();
+  this._edUpdateMasterChk?.();
+}
+
+_edUpdateSelCount() {
+  const n = (this.editing?.selected?.size || 0);
+  const el = document.getElementById('ed-sel-count');
+  if (el) el.textContent = `${n} selected`;
+}
+
+// === GENDER COLORS (fixed) ===
+// normalisasi nama agar konsisten (hindari "spk_01 " vs "SPK_01")
+_edCanonSpeaker(name) {
+  return String(name||'').trim().replace(/\s+/g,' ').toUpperCase();
+}
+
+// simpan/muat map warna di localStorage (per session)
+_edLoadSpeakerColors() {
+  const ed = this.editing || (this.editing = {});
+  const sid = this.sessionId || ed.sessionId || 'default';
+  try { ed._spkColor = JSON.parse(localStorage.getItem(`dracindub.spkcolors.${sid}`) || '{}'); }
+  catch { ed._spkColor = {}; }
+}
+_edSaveSpeakerColors() {
+  const ed = this.editing || (this.editing = {});
+  const sid = this.sessionId || ed.sessionId || 'default';
+  try { localStorage.setItem(`dracindub.spkcolors.${sid}`, JSON.stringify(ed._spkColor||{})); } catch {}
+}
+
+// warna gelap tajam (nyaman di dark UI)
+// normalisasi nama agar konsisten (hindari "spk_01 " vs "SPK_01")
+_edCanonSpeaker(name) {
+  return String(name||'').trim().replace(/\s+/g,' ').toUpperCase();
+}
+
+// simpan/muat map warna di localStorage (per session)
+_edLoadSpeakerColors() {
+  const ed = this.editing || (this.editing = {});
+  const sid = this.sessionId || ed.sessionId || 'default';
+  try { ed._spkColor = JSON.parse(localStorage.getItem(`dracindub.spkcolors.${sid}`) || '{}'); }
+  catch { ed._spkColor = {}; }
+}
+_edSaveSpeakerColors() {
+  const ed = this.editing || (this.editing = {});
+  const sid = this.sessionId || ed.sessionId || 'default';
+  try { localStorage.setItem(`dracindub.spkcolors.${sid}`, JSON.stringify(ed._spkColor||{})); } catch {}
+}
+
+// warna gelap tajam (nyaman di dark UI)
+_hash32(s){let h=2166136261>>>0;for(let i=0;i<(s||'').length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h>>>0;}
+_speakerHueAvoid(h){const avoid=[[190,235],[315,350]];let hue=((h%360)+360)%360;const inR=(x,[a,b])=>a<=b?(x>=a&&x<=b):(x>=a||x<=b);let g=0;while(avoid.some(r=>inR(hue,r))&&g<20){hue=(hue+36)%360;g++;}return hue;}
+_edEnsureSpeakerColor(name) {
+  const ed = this.editing || (this.editing = {});
+  ed._spkColor = ed._spkColor || {};
+  const key = this._edCanonSpeaker(name);
+  if (!key) return { solid: 'hsl(220 5% 35%)', bg: 'hsl(220 5% 35% / 0.18)' };
+  if (!ed._spkColor[key]) {
+    const hue = this._speakerHueAvoid(this._hash32(key));
+    const solid = `hsl(${hue} 70% 38%)`;   // L rendah = nyaman
+    const bg    = `hsl(${hue} 70% 38% / 0.18)`; // overlay tipis
+    ed._spkColor[key] = { solid, bg };
+    this._edSaveSpeakerColors();
+  }
+  return ed._spkColor[key];
+}
+
+// gender (gelap + overlay tipis)
+_genderSolid(g){
+  switch((g||'').toLowerCase()){
+    case 'male':   return 'hsl(220 85% 46%)';
+    case 'female': return 'hsl(340 76% 47%)';
+    default:       return 'hsl(220  5% 55%)';
+  }
+}
+// return "H,S%,L%" triplet → aman untuk hsl/hsla
+_genderTriplet(g){
+  switch ((g||'').toLowerCase()){
+    case 'male':   return '220,85%,46%'; // blue-600
+    case 'female': return '340,76%,47%'; // rose-600
+    default:       return '220,5%,55%';  // gray-500
+  }
+}
+_genderBorder(g){ return `hsl(${this._genderTriplet(g)})`; }            // solid
+_genderBg(g){     return `hsla(${this._genderTriplet(g)},0.16)`; }      // overlay tipis
+
 
 initEditingState() {
   this.editing = {
@@ -2096,74 +2434,172 @@ async loadEditingTab() {
   const tab = document.getElementById('editing');
   if (!tab) return;
 
-  tab.innerHTML = `
-    <div id="tab-editing" class="bg-gray-800 rounded-lg p-4">
-      <h2 class="text-xl font-bold mb-4 text-yellow-400">
-        <i class="fas fa-edit mr-2"></i>Editing
-      </h2>
+tab.innerHTML = `
+  <div id="tab-editing" class="bg-gray-800 rounded-lg p-4">
+    <h2 class="text-xl font-bold mb-4 text-yellow-400">
+      <i class="fas fa-edit mr-2"></i>Editing
+    </h2>
 
-      <div class="flex flex-wrap items-center gap-2 mb-3">
-        <input id="ed-session-input" class="bg-gray-700 border border-gray-600 text-white px-3 py-1 rounded w-64"
-               placeholder="Paste / ketik Session ID…" />
-        <button id="ed-load-session" class="btn btn-slate px-3 py-1">Load Session</button>
+    <!-- Session Controls -->
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <input id="ed-session-input" class="bg-gray-700 border border-gray-600 text-white px-3 py-1 rounded w-64"
+             placeholder="Paste / ketik Session ID…" />
+      <button id="ed-load-session" class="btn btn-slate px-3 py-1">Load Session</button>
 
-        <select id="ed-session-select" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
-          <option value="">— pilih session —</option>
-        </select>
+      <select id="ed-session-select" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
+        <option value="">— pilih session —</option>
+      </select>
 
-        <span class="mx-2 text-gray-400">|</span>
+      <span class="mx-2 text-gray-400">|</span>
 
-			<select id="ed-gender" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
-			  <option value="all">All genders</option>
-			  <option value="male">male</option>
-			  <option value="female">female</option>
-			  <option value="unknown">unknown</option>
-			</select>
+      <select id="ed-gender" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
+        <option value="all">All genders</option>
+        <option value="male">male</option>
+        <option value="female">female</option>
+        <option value="unknown">unknown</option>
+      </select>
 
-			<select id="ed-speaker-select" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
-			  <option value="all">All speakers</option>
-			</select>
+      <select id="ed-speaker-select" class="bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded">
+        <option value="all">All speakers</option>
+      </select>
 
-			<input id="ed-search" class="bg-gray-700 border border-gray-600 text-white px-3 py-1 rounded w-52"
-				   placeholder="Search text…" />
+      <input id="ed-search" class="bg-gray-700 border border-gray-600 text-white px-3 py-1 rounded w-52"
+             placeholder="Search text…" />
 
+      <label class="ml-2 inline-flex items-center gap-2 text-gray-300">
+        <input id="ed-follow" type="checkbox" class="w-4 h-4" checked />
+        Follow
+      </label>
+		<label class="ml-2 inline-flex items-center gap-2 text-gray-300">
+		  <input id="ed-warn-only" type="checkbox" class="w-4 h-4" />
+		  Warnings only
+		</label>
 
-        <label class="ml-2 inline-flex items-center gap-2 text-gray-300">
-          <input id="ed-follow" type="checkbox" class="w-4 h-4" checked />
-          Follow
-        </label>
+      <div class="ml-auto flex items-center gap-2">
+        <button id="ed-save" class="btn btn-primary px-3 py-1">Save</button>
+        <button id="ed-merge" class="btn bg-green-500 px-3 py-1" disabled>Gabung Subtitle</button>
+        <button id="ed-exp-male" class="btn bg-pink-500 px-3 py-1">Export Male</button>
+        <button id="ed-exp-female" class="btn bg-pink-500 px-3 py-1">Export Female</button>
+        <button id="ed-exp-unk" class="btn bg-pink-500 px-3 py-1">Export Unknown</button>
+        <button id="ed-exp-all" class="btn bg-pink-500 px-3 py-1">Gender All (zip)</button>
+        <button id="ed-exp-speaker" class="btn bg-orange-500 px-3 py-1">Export Speaker Dipilih</button>
+        <button id="ed-exp-speaker-zip" class="btn bg-orange-500 px-3 py-1">Semua Speakers (zip)</button>
+        <button id="ed-exp-full" class="btn bg-red-500 px-3 py-1">Export Full SRT</button>
+      </div>
+    </div>
 
-        <div class="ml-auto flex items-center gap-2">
-          <button id="ed-save" class="btn btn-primary px-3 py-1">Save</button>
-		  <button id="ed-merge" class="btn bg-green-500 px-3 py-1" disabled>Gabung Subtitle</button>
-          <button id="ed-exp-male" class="btn bg-pink-500 px-3 py-1">Export Male</button>
-          <button id="ed-exp-female" class="btn bg-pink-500 px-3 py-1">Export Female</button>
-          <button id="ed-exp-unk" class="btn bg-pink-500 px-3 py-1">Export Unknown</button>
-          <button id="ed-exp-all" class="btn bg-pink-500 px-3 py-1">Gender All (zip)</button>
-		  <button id="ed-exp-speaker" class="btn bg-orange-500 px-3 py-1">Export Speaker Dipilih</button>
-		  <button id="ed-exp-speaker-zip" class="btn bg-orange-500 px-3 py-1">Semua Speakers (zip)</button>
-		  <button id="ed-exp-full" class="btn bg-red-500 px-3 py-1">Export Full SRT</button>
+    <!-- Bulk Toolbar -->
+    <div id="ed-bulkbar" class="p-3 rounded bg-gray-800/50 border border-gray-700">
+      <div class="grid grid-cols-2 gap-4">
+        <!-- Kolom Kiri - Selection & Actions -->
+        <div class="space-y-2">
+          <!-- Selection Row -->
+          <div class="flex items-center gap-2">
+            <button id="ed-select-shown" class="px-2 py-1 border rounded text-sm">Select shown</button>
+            <button id="ed-clear-selection" class="px-2 py-1 border rounded text-sm">Clear</button>
+            <button id="ed-invert-selection" class="px-2 py-1 border rounded text-sm">Invert</button>
+            <span id="ed-sel-count" class="text-xs opacity-70 ml-1">0 selected</span>
+          </div>
+
+          <!-- Scope & Check Row -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-gray-300">Apply to:</span>
+            <label class="flex items-center gap-1">
+              <input type="radio" name="ed-bulk-scope" value="selected" checked>
+              <span class="text-sm">Selected</span>
+            </label>
+            
+            <label class="flex items-center gap-1 ml-2">
+              <input id="ed-master-chk" type="checkbox" class="w-4 h-4">
+              <span class="text-sm">Check all</span>
+            </label>
+          </div>
+
+          <!-- Gender & Speaker Row -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-gray-300">Gender:</span>
+            <button id="ed-bulk-g-m" class="btn bg-pink-500 px-2 py-1 border rounded text-sm">MALE</button>
+            <button id="ed-bulk-g-f" class="btn bg-blue-500 px-2 py-1 border rounded text-sm">FEMALE</button>
+            <button id="ed-bulk-g-u" class="px-2 py-1 border rounded text-sm">Unknown</button>
+
+            <span class="text-sm text-gray-300 ml-2">Speaker:</span>
+            <input id="ed-bulk-speaker" class="px-2 py-1 bg-gray-900 border border-gray-600 rounded w-28 text-sm"
+                   placeholder="Nama speaker">
+            <button id="ed-bulk-set-speaker" class="btn bg-blue-500 px-2 py-1 border rounded text-sm">
+              Ubah
+            </button>
+			            <button id="ed-undo" class="btn bg-red-500 px-2 py-1 border rounded text-sm">Undo / Mundur</button>
+            <button id="ed-redo" class="btn bg-green-500 px-2 py-1 border rounded text-sm">Redo / Maju</button>
+          </div>
+
+          <!-- Functions Row -->
+        </div>
+
+        <!-- Kolom Kanan - Mapping Settings -->
+        <div class="space-y-2">
+          <!-- ASSIGN_POLICY Row -->
+          <div class="flex items-center gap-2">
+            <label class="text-sm text-gray-300 whitespace-nowrap w-24">ASSIGN_POLICY:</label>
+			
+            <select id="assign-policy" class="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-white text-sm flex-1">
+			  <option value="overlap">overlap</option>
+			  <option value="start">start</option>
+			  <option value="end">end</option>
+			  <option value="midpoint">midpoint</option>
+			  <option value="majority_then_start">majority_then_start</option>
+			  <option value="majority_then_midpoint">majority_then_midpoint</option>
+			  <option value="adaptive" selected>adaptive</option>  <!-- default -->
+            </select>
+          </div>
+
+          <!-- MAJORITY & SNAP_MS Row -->
+          <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 flex-1">
+              <label class="text-sm text-gray-300 whitespace-nowrap w-16">MAJORITY:</label>
+              <input id="majority" type="number" min="0" max="1" step="0.05" value="0.60"
+                     class="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-white text-sm w-20">
+            </div>
+
+            <div class="flex items-center gap-2 flex-1">
+              <label class="text-sm text-gray-300 whitespace-nowrap w-16">SNAP_MS:</label>
+              <input id="snap-ms" type="number" min="0" step="10" value="120"
+                     class="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-white text-sm w-20">
+            </div>
+          </div>
+
+          <!-- Apply Button & Note -->
+          <div class="flex items-center gap-2">
+            <button id="ed-apply-mapping" class="btn bg-blue-600 px-3 py-1 rounded text-sm">
+              Apply Mapping
+            </button>
+            <span class="text-xs text-gray-400">0 = matikan snapping</span>
+          </div>
         </div>
       </div>
-
-      <div id="ed-session-info" class="text-sm text-gray-400 mb-3">No session loaded.</div>
-
-		<div class="grid grid-cols-[30%_1fr] gap-4 items-start">
-		  <div class="sticky top-20 h-[calc(100vh-6rem)] bg-black rounded overflow-hidden">
-			<video id="ed-video"
-				   class="w-full h-full object-contain bg-black aspect-[9/16]"
-				   controls preload="metadata" playsinline></video>
-		  </div>
-
-		  <div class="max-h-[calc(100vh-6rem)] overflow-auto flex flex-col">
-			<div class="text-sm text-gray-300 mb-2">
-			  <span id="ed-counter">0 shown / 0 total</span>
-			</div>
-			<div id="ed-list" class="flex-1 space-y-2"></div>
-		  </div>
-		</div>
     </div>
-  `;
+
+    <!-- Session Info -->
+    <div id="ed-session-info" class="text-sm text-gray-400 my-3">No session loaded.</div>
+
+    <!-- Main Content Grid -->
+    <div class="grid grid-cols-[30%_1fr] gap-4 items-start">
+      <!-- Video Panel -->
+      <div class="sticky top-20 h-[calc(100vh-6rem)] bg-black rounded overflow-hidden">
+        <video id="ed-video"
+               class="w-full h-full object-contain bg-black aspect-[9/16]"
+               controls preload="metadata" playsinline></video>
+      </div>
+
+      <!-- Subtitle List -->
+      <div class="max-h-[calc(100vh-6rem)] overflow-auto flex flex-col">
+        <div class="text-sm text-gray-300 mb-2">
+          <span id="ed-counter">0 shown / 0 total</span>
+        </div>
+        <div id="ed-list" class="flex-1 space-y-2"></div>
+      </div>
+    </div>
+  </div>
+`;
 
   this._edBindEvents();
   await this._edPopulateSessionSelector();
@@ -2174,6 +2610,7 @@ async loadEditingTab() {
     if (inp) inp.value = st.sessionId;
     await this._edLoad(st.sessionId);
   }
+  this._edInitBulkSimple?.();
 }
 
 _edUpdateMergeBtn() {
@@ -2242,8 +2679,31 @@ _edMergeSelected(){
   this._edIndexSeconds();
   this._edFilterRender();
   this._edAttachVttTrack();
+  this._edInitBulkSimple?.();
   this.showNotification(`Merged ${idxs.length} rows → #${keepIdx}`, 'success');
 }
+
+// Pasang event untuk "Speaker: [input]  [Set]" — aman dipanggil berulang
+_edInitBulkSimple() {
+  const $ = (id) => document.getElementById(id);
+  const btn = $('ed-bulk-set-speaker');
+  const inp = $('ed-bulk-speaker');
+
+  // elemen belum ada? skip
+  if (!btn || !inp) return;
+  if (btn._bound) return;  // cegah double-bind
+  btn._bound = true;
+
+  const doSet = () => {
+    const name = (inp.value || '').trim();
+    if (!name) { this.showNotification?.('Isi nama speaker dulu.', 'warning'); return; }
+    this._edBulkSetSpeaker(name);   // langkah 4
+  };
+
+  btn.addEventListener('click', doSet);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSet(); });
+}
+
 
 /* ================== CC (WebVTT) ================== */
 
@@ -2280,8 +2740,9 @@ _buildVTTFromRows(rows, opts = {}) {
     const start = this._srtToVttTime(r.start);
     const end   = this._srtToVttTime(r.end);
     const spk   = (r.speaker || '').trim();
+	const gRaw = (r.gender || '').trim().toLowerCase();
     let text    = (r.translation || '').replace(/\r?\n/g, ' ').trim() || '-';
-    if (o.withSpeaker && spk) text = `${spk}: \n${text}`;
+    if (o.withSpeaker && gRaw) text = `${gRaw}: \n${text}`;
 
     // snapLines=true → line:<integer> (fleksibel); false → line:<percent>
     const lineToken = o.snapLines ? `line:${o.line}` : `line:${o.linePct}%`;
@@ -2363,12 +2824,26 @@ _edInitVTTDefaults() {
 _edBindEvents() {
   const $ = id => document.getElementById(id);
   const ed = this.editing;
+document.getElementById('ed-warn-only')?.addEventListener('change', () => {
+  this.editing.warnOnly = document.getElementById('ed-warn-only').checked;
+  this._edFilterRender();
+});
+
   $('ed-exp-full')?.addEventListener('click', () => this._edExport('full'));
   $('ed-merge')?.addEventListener('click', () => this._edMergeSelected());
+
   $('ed-load-session')?.addEventListener('click', async () => {
     const id = $('ed-session-input')?.value.trim() || $('ed-session-select')?.value.trim();
     if (!id) return this.showNotification('Isi/pilih Session ID dulu.', 'warning');
     await this._edLoad(id);
+  });
+
+  // APPLY MAPPING → re-fetch dengan policy/majority/snap terbaru
+  document.getElementById('ed-apply-mapping')?.addEventListener('click', async () => {
+    const sid = this.editing?.sessionId || this.currentSessionId
+            || document.getElementById('ed-session-input')?.value?.trim();
+    if (!sid) return this.showNotification('Load session dulu.', 'warning');
+    await this._edLoad(sid);
   });
 
   $('ed-session-select')?.addEventListener('change', async (e) => {
@@ -2379,17 +2854,22 @@ _edBindEvents() {
   });
 
   $('ed-gender')?.addEventListener('change', () => {
-    ed.genderFilter = $('ed-gender').value; this._edFilterRender();
+    ed.genderFilter = $('ed-gender').value;
+    this._edFilterRender();
   });
-const spkSel = document.getElementById('ed-speaker-select') ||
-               document.getElementById('ed-speaker');
-spkSel?.addEventListener('change', () => {
-  this.editing.speakerFilter = spkSel.value || 'all';
-  this._edFilterRender();
-});
+
+  const spkSel = document.getElementById('ed-speaker-select') ||
+                 document.getElementById('ed-speaker');
+  spkSel?.addEventListener('change', () => {
+    this.editing.speakerFilter = spkSel.value || 'all';
+    this._edFilterRender();
+  });
+
   $('ed-search')?.addEventListener('input', () => {
-    ed.search = $('ed-search').value.trim(); this._edFilterRender();
+    ed.search = $('ed-search').value.trim();
+    this._edFilterRender();
   });
+
   $('ed-follow')?.addEventListener('change', () => { ed.follow = $('ed-follow').checked; });
 
   $('ed-save')?.addEventListener('click', () => this._edSave());
@@ -2397,21 +2877,24 @@ spkSel?.addEventListener('change', () => {
   $('ed-exp-female')?.addEventListener('click', () => this._edExport('female'));
   $('ed-exp-unk')?.addEventListener('click', () => this._edExport('unknown'));
   $('ed-exp-all')?.addEventListener('click', () => this._edExport('all'));
-$('ed-exp-speaker')?.addEventListener('click', () => {
-  const sel = document.getElementById('ed-speaker-select');
-  const spk = (sel?.value || '').trim();
-  if (!spk || spk === 'all') {
-    return this.showNotification('Pilih 1 speaker dulu di dropdown.', 'warning');
-  }
-  this._edExport('speaker', { speaker: spk });
-});
 
-$('ed-exp-speaker-zip')?.addEventListener('click', () => {
-  this._edExport('speaker_zip');
-});
+  $('ed-exp-speaker')?.addEventListener('click', () => {
+    const sel = document.getElementById('ed-speaker-select');
+    const spk = (sel?.value || '').trim();
+    if (!spk || spk === 'all') {
+      return this.showNotification('Pilih 1 speaker dulu di dropdown.', 'warning');
+    }
+    this._edExport('speaker', { speaker: spk });
+  });
+
+  $('ed-exp-speaker-zip')?.addEventListener('click', () => {
+    this._edExport('speaker_zip');
+  });
+
   const v = $('ed-video');
   v?.addEventListener('timeupdate', () => this._edOnVideoTime(v.currentTime));
 }
+
 
 _edPopulateSpeakerFilter(list) {
   const sel =
@@ -2455,15 +2938,55 @@ async _edPopulateSessionSelector() {
   } catch {}
 }
 
+_edHistoryInit() {
+  const ed = this.editing || (this.editing = {});
+  ed._undo = ed._undo || [];
+  ed._redo = ed._redo || [];
+  ed._histLimit = 200;
+
+  const btnUndo = document.getElementById('ed-undo');
+  const btnRedo = document.getElementById('ed-redo');
+
+  const syncBtns = () => {
+    if (btnUndo) btnUndo.disabled = !(ed._undo.length);
+    if (btnRedo) btnRedo.disabled = !(ed._redo.length);
+  };
+  this._edSyncHistoryBtns = syncBtns;
+  syncBtns();
+
+  // click
+  btnUndo?.addEventListener('click', () => this._edUndo());
+  btnRedo?.addEventListener('click', () => this._edRedo());
+
+  // keyboard: Ctrl+Z / Ctrl+Y (atau Ctrl+Shift+Z)
+  if (!this._edHistKeyBound) {
+    this._edHistKeyBound = true;
+    document.addEventListener('keydown', (e) => {
+      const k = (e.key || '').toLowerCase();
+      if (e.ctrlKey && !e.shiftKey && k === 'z') { e.preventDefault(); this._edUndo(); }
+      else if ((e.ctrlKey && k === 'y') || (e.ctrlKey && e.shiftKey && k === 'z')) {
+        e.preventDefault(); this._edRedo();
+      }
+    });
+  }
+}
+
 async _edLoad(sessionId) {
   const ed = this.editing;
   this.showLoading('Loading editing data…');
   try {
-    const url = `/api/session/${sessionId}/editing`;
+    const p = new URLSearchParams({
+      assign_policy: document.getElementById('assign-policy')?.value || 'adaptive',
+      majority: String(parseFloat(document.getElementById('majority')?.value || '0.60')),
+      snap_ms: String(parseInt(document.getElementById('snap-ms')?.value || '120', 10)),
+      // KUNCI: eksplisitkan pisah jalur gender
+      gender_mode: 'segment_only',
+    });
+    const url = `/api/session/${encodeURIComponent(sessionId)}/editing?${p.toString()}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
 
-    const data = await res.json(); // {video, rows:[...], speakers?}
+    const data = await res.json(); // { video, rows:[...], speakers? }
     ed.sessionId = sessionId;
     this.currentSessionId = sessionId;
 
@@ -2474,44 +2997,46 @@ async _edLoad(sessionId) {
       translation: r.translation || "",
       speaker: r.speaker || "",
       gender: (r.gender || "unknown").toLowerCase(),
-      notes: r.notes || ""
-    }));
+      notes: r.notes || "",
+	  // --- warning fields ---
+	  warn_level: r.warn_level || "OK",
+	  warn_codes: Array.isArray(r.warn_codes) ? r.warn_codes : [],
+	  frac_spk: r.frac_spk ?? null,
+	  frac_gen: r.frac_gen ?? null,
+	  near_start_ms: r.near_start_ms ?? null,
+	  near_end_ms: r.near_end_ms ?? null,
+	  dur_ms: r.dur_ms ?? null
+	}));
 
-    // Setelah data rows diterima:
     this._edIndexSeconds();
 
-    // Fallback untuk speakers jika backend belum mengirim atau kosong
-	ed.speakers = Array.isArray(data.speakers) && data.speakers.length
-	  ? data.speakers
-	  : [...new Set(ed.rows.map(r => (r.speaker || '').trim()).filter(Boolean))].sort();
+    // Speakers dari backend; kalau kosong, derive dari rows
+    ed.speakers = Array.isArray(data.speakers) && data.speakers.length
+      ? data.speakers
+      : [...new Set(ed.rows.map(r => (r.speaker || '').trim()).filter(Boolean))].sort();
 
-    // isi dropdown speaker sekali
     this._edPopulateSpeakerFilter(ed.speakers);
-    ed.videoUrl = `/api/session/${sessionId}/video`;
+    ed.videoUrl = `/api/session/${encodeURIComponent(sessionId)}/video`;
 
     const info = document.getElementById('ed-session-info');
     if (info) info.textContent = `Session: ${sessionId}`;
     const video = document.getElementById('ed-video');
     if (video) { video.src = ed.videoUrl; }
-	this._edSyncListHeightToVideo();
-	this._edInitVTTDefaults();
+    this._edSyncListHeightToVideo();
+    this._edInitVTTDefaults();
     this._edAttachVttTrack();
-	
-    // lalu filter pertama kali
-	// seed default filter jika belum ada
-	if (!this.editing.genderFilter)  this.editing.genderFilter  = 'all';
-	if (!this.editing.speakerFilter) this.editing.speakerFilter = 'all';
-	if (typeof this.editing.search !== 'string') this.editing.search = '';
 
-	// isi dropdown speaker (sekali saja, dari rows yang ada)
-	const speakers = [...new Set((this.editing.rows || [])
-	  .map(r => r.speaker).filter(Boolean))].sort();
-	this._edPopulateSpeakerFilter(
-	  [...new Set((this.editing.rows || []).map(r => (r.speaker||'').trim()).filter(Boolean))].sort()
-	);
+    // seed filter awal
+    if (!this.editing.genderFilter)  this.editing.genderFilter  = 'all';
+    if (!this.editing.speakerFilter) this.editing.speakerFilter = 'all';
+    if (typeof this.editing.search !== 'string') this.editing.search = '';
 
-	// render pertama
-	this._edFilterRender();
+    // render pertama
+    this._edFilterRender();
+    this._edInitBulkUI();
+    this._edLoadSpeakerColors?.();
+    this._edHistoryInit?.();
+	if (typeof this.editing.warnOnly !== 'boolean') this.editing.warnOnly = false;
     this.showNotification('Editing data loaded.', 'success');
   } catch (e) {
     this.showNotification(`Load editing gagal: ${e.message || e}`, 'error');
@@ -2520,30 +3045,159 @@ async _edLoad(sessionId) {
   }
 }
 
+
+// Patch item: { idx, key: 'gender'|'speaker'|'translation', before, after }
+
+_edPushHistory(label, patches) {
+  const ed = this.editing || (this.editing = {});
+  if (!patches || !patches.length) return;
+  ed._undo.push({ label, patches });
+  if (ed._undo.length > (ed._histLimit||200)) ed._undo.shift();
+  ed._redo.length = 0; // clear redo on new op
+  this._edSyncHistoryBtns?.();
+}
+
+_edApplyPatches(patches, dir /*'undo'|'redo'*/) {
+  const ed = this.editing || {};
+  let needRerender = false;
+
+  for (const p of patches) {
+    const row = (ed.rows || []).find(x => x.index === p.idx);
+    if (!row) { needRerender = true; continue; }
+    const val = (dir === 'undo') ? p.before : p.after;
+    row[p.key] = val;
+
+    // update DOM kalau ada
+    const el = document.getElementById(`row-${p.idx}`);
+    if (!el) { needRerender = true; continue; }
+
+    if (p.key === 'translation') {
+      const inp = el.querySelector('.ed-text');
+      if (inp && inp.value !== val) inp.value = val || '';
+    } else if (p.key === 'speaker') {
+      const inp = el.querySelector('.ed-speaker');
+      if (inp && inp.value !== (val||'')) {
+        inp.value = val || '';
+        // jika kamu pakai pewarnaan speaker:
+        if (this._edEnsureSpeakerColor) {
+          const { solid, bg } = this._edEnsureSpeakerColor(val);
+          inp.style.backgroundColor = bg;
+          inp.style.borderColor = solid;
+        }
+      }
+    } else if (p.key === 'gender') {
+      // support SELECT native:
+      const sel = el.querySelector('.ed-gender');
+      if (sel) {
+        sel.value = val || 'unknown';
+        // update strip & bg
+        const gSolid = this._genderBorder?.(val);
+        const gBg    = this._genderBg?.(val);
+        if (gBg)  sel.style.backgroundColor = gBg;
+        if (gSolid) {
+          sel.style.borderColor = gSolid;
+          el.style.boxShadow = `inset 4px 0 0 ${gSolid}`;
+        }
+      }
+      // support custom popover button:
+      const gbtn = el.querySelector('.ed-gbtn .ed-glabel') ? el.querySelector('.ed-gbtn') : null;
+      if (gbtn) {
+        const glabel = el.querySelector('.ed-glabel');
+        if (glabel) glabel.textContent = val || 'unknown';
+        const gSolid = this._genderBorder?.(val);
+        const gBg    = this._genderBg?.(val);
+        if (gBg)  gbtn.style.backgroundColor = gBg;
+        if (gSolid) {
+          gbtn.style.borderColor = gSolid;
+          el.style.boxShadow = `inset 4px 0 0 ${gSolid}`;
+        }
+      }
+    }
+  }
+
+  if (needRerender) this._edRenderList?.(); // fallback jika DOM baris tidak ada
+}
+
+_edUndo() {
+  const ed = this.editing || {};
+  const rec = ed._undo?.pop();
+  if (!rec) return;
+  // terapkan BEFORE
+  this._edApplyPatches(rec.patches, 'undo');
+  // simpan ke redo
+  ed._redo.push(rec);
+  this._edSyncHistoryBtns?.();
+}
+
+_edRedo() {
+  const ed = this.editing || {};
+  const rec = ed._redo?.pop();
+  if (!rec) return;
+  // terapkan AFTER
+  this._edApplyPatches(rec.patches, 'redo');
+  // kembali ke undo
+  ed._undo.push(rec);
+  this._edSyncHistoryBtns?.();
+}
+
+_edWarnBadge(row) {
+  const level = row?.warn_level || 'OK';
+  if (level === 'OK') return '';
+  const color = level === 'ALERT' ? 'bg-red-600' : 'bg-amber-500';
+  const text  = level === 'ALERT' ? 'ALERT'      : 'WARN';
+  const tip   = Array.isArray(row?.warn_codes) && row.warn_codes.length
+    ? row.warn_codes.join(', ')
+    : text;
+  return `<span title="${tip}" class="ml-1 inline-block text-[10px] ${color} text-white px-2 py-0.5 rounded">${text}</span>`;
+}
+
+_edWarnStyleAndTitle(row) {
+  const level = row?.warn_level || 'OK';
+  if (level === 'OK') return { style: '', title: '' };
+
+  const color = (level === 'ALERT') ? '#dc2626' /* red-600 */ : '#f59e0b' /* amber-500 */;
+  const st = `border-color:${color}; box-shadow: inset 0 0 0 1px ${color};`;
+  const spk = (row?.frac_spk != null) ? `spk ${(row.frac_spk*100).toFixed(0)}%` : '';
+  const gen = (row?.frac_gen != null) ? `gen ${(row.frac_gen*100).toFixed(0)}%` : '';
+  const ns  = (row?.near_start_ms != null) ? `Δstart ${row.near_start_ms}ms` : '';
+  const ne  = (row?.near_end_ms   != null) ? `Δend ${row.near_end_ms}ms`     : '';
+  const codes = Array.isArray(row?.warn_codes) ? row.warn_codes.join(', ') : '';
+  const title = [level, codes, spk, gen, ns, ne].filter(Boolean).join(' | ');
+  return { style: st, title };
+}
+
+
 _edFilterRender(){
   const ed = this.editing || {};
   const rows = ed.rows || [];
   const term = (ed.search || '').toLowerCase();
 
-  // Fallback aman
-  const gf = (ed.genderFilter || 'all');           // 'all' | 'male' | 'female' | 'unknown'
-  const sf = (ed.speakerFilter || 'all');          // 'all' | 'SPEAKER_*'
+  const gf = (ed.genderFilter || 'all'); // 'all' | 'male' | 'female' | 'unknown'
+  const sf = (ed.speakerFilter || 'all'); // 'all' | '__EMPTY__' | 'SPEAKER_*'
 
+  // filter dasar → ke ed.filtered
   ed.filtered = rows.filter(r => {
     const okG = (gf === 'all') || ((r.gender || 'unknown') === gf);
-	const okS = (sf === 'all')
-	  || (sf === '__EMPTY__' ? !((r.speaker || '').trim())
-							 : ((r.speaker || '') === sf));
-    const okQ = !term || (r.translation || '').toLowerCase().includes(term) ||
-                         (r.text || '').toLowerCase().includes(term);
+    const okS = (sf === 'all')
+      || (sf === '__EMPTY__' ? !((r.speaker || '').trim())
+                             : ((r.speaker || '') === sf));
+    const okQ = !term || (r.translation || '').toLowerCase().includes(term)
+                      || (r.text || '').toLowerCase().includes(term);
     return okG && okS && okQ;
   });
+
+  // ⟵ APPLY WARNINGS ONLY KE ed.filtered (BUKAN ke rows)
+  if (ed.warnOnly) {
+    ed.filtered = ed.filtered.filter(r => (r.warn_level || 'OK') !== 'OK');
+  }
 
   const counter = document.getElementById('ed-counter');
   if (counter) counter.textContent = `${ed.filtered.length} shown / ${rows.length} total`;
 
   this._edRenderList();
+  this._edInitBulkSimple?.();
 }
+
 
 
 _edRenderList() {
@@ -2570,29 +3224,125 @@ _edRenderList() {
   if (!ed.filtered.length) { wrap.innerHTML = `<div class="p-4 text-gray-400">No rows.</div>`; return; }
   const esc = s => String(s||'').replace(/[&<>"']/g,c=>({ '&':'&','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-  // 1 baris: [#id][time][gender][speaker][translation][play]
-	wrap.innerHTML = ed.filtered.map(r => `
-	  <div class="ed-row grid items-center gap-2"
-		   style="grid-template-columns:28px 48px 220px 70px 85px 1fr 38px"
-		   data-idx="${r.index}" id="row-${r.index}">
-		<input type="checkbox" class="ed-chk w-4 h-4" data-idx="${r.index}" />
-		<div class="text-gray-400 font-mono">#${r.index}</div>
-		<div class="ed-time font-mono text-sm bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap">
-		  ${r.start} <span class="opacity-60">→</span> ${r.end}
+	// 1 baris: [#id][time][gender][speaker][translation][play]
+	wrap.innerHTML = ed.filtered.map(r => {
+	  const gSolid = this._genderBorder(r.gender);
+	  const gBg    = this._genderBg(r.gender);
+
+	  // menu 3 opsi gender
+	  const gMenu = ['male','female','unknown'].map(g => {
+		const s = this._genderBorder(g);
+		const b = this._genderBg(g);
+		return `<button class="ed-gpick block w-full text-left rounded px-2 py-1 text-xs mb-1"
+						data-idx="${r.index}" data-g="${g}"
+						style="background-color:${b}; color:#E5E7EB; border:1px solid ${s}">
+				  ${g}
+				</button>`;
+	  }).join('');
+
+	  // WARN: style & title untuk kolom time
+	  const { style: warnTimeStyle, title: warnTimeTitle } = this._edWarnStyleAndTitle(r);
+
+	  return `
+		<div class="ed-row grid items-center gap-2"
+			 style="grid-template-columns:28px 48px 220px 90px 85px 1fr 38px; box-shadow: inset 4px 0 0 ${gSolid};"
+			 data-idx="${r.index}" id="row-${r.index}">
+		  <input type="checkbox" class="ed-chk" data-idx="${r.index}" ${ this.editing?.selected?.has(r.index) ? 'checked' : '' }>
+
+		  <!-- #ID + WARN badge -->
+		  <div class="text-gray-400 font-mono flex items-center">
+			#${r.index} ${this._edWarnBadge(r)}   <!-- WARN -->
+		  </div>
+
+		  <!-- TIME: diberi outline + tooltip saat WARN -->
+		  <div class="ed-time font-mono text-sm bg-gray-800 border border-gray-700 rounded px-2 py-1 whitespace-nowrap"
+			   style="${warnTimeStyle}" title="${warnTimeTitle}">
+			${r.start} <span class="opacity-60">→</span> ${r.end}
+		  </div>
+
+		  <!-- GENDER: custom dropdown -->
+		  <div class="ed-gwrap relative">
+			<button class="ed-gbtn border rounded text-xs px-2 py-1 w-[80px] flex items-center justify-between"
+					data-idx="${r.index}"
+					style="background-color:${gBg}; color:#E5E7EB; border-color:${gSolid}">
+			  <span class="ed-glabel">${r.gender||'unknown'}</span>
+			  <span class="ml-1 opacity-70">▾</span>
+			</button>
+			<div class="ed-gmenu hidden absolute z-20 right-0 mt-1 p-1 rounded border border-gray-600 bg-gray-800 shadow-lg w-[120px]">
+			  ${gMenu}
+			</div>
+		  </div>
+
+		  <!-- SPEAKER tetap -->
+		  <input class="ed-speaker border rounded text-xs w-full px-2 py-1"
+				 style="background-color:${this._edEnsureSpeakerColor(r.speaker).bg}; color:#F9FAFB; border-color:${this._edEnsureSpeakerColor(r.speaker).solid}"
+				 value="${esc(r.speaker||'')}" placeholder="SPEAKER_*"/>
+
+		  <!-- TRANSLATION -->
+		  <input class="ed-text bg-gray-800 border border-gray-700 text-green-400 rounded px-2 py-1 text-sm w-full
+						whitespace-nowrap overflow-hidden text-ellipsis"
+				 value="${esc(r.translation||'')}" placeholder="Translation…"/>
+
+		  <button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
 		</div>
-		<select class="ed-gender bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs">
-		  <option value="male"   ${r.gender==='male'?'selected':''}>male</option>
-		  <option value="female" ${r.gender==='female'?'selected':''}>female</option>
-		  <option value="unknown" ${r.gender==='unknown'?'selected':''}>unknown</option>
-		</select>
-		<input class="ed-speaker bg-gray-700 border border-gray-600 text-white px-2 py-1 rounded text-xs w-full"
-			   value="${esc(r.speaker||'')}" placeholder="SPEAKER_*"/>
-		<input class="ed-text bg-gray-800 border border-gray-700 text-green-400 rounded px-2 py-1 text-sm w-full
-					  whitespace-nowrap overflow-hidden text-ellipsis"
-			   value="${esc(r.translation||'')}" placeholder="Translation…"/>
-		<button class="ed-play btn btn-slate px-2 py-1 text-xs">▶</button>
-	  </div>
-	`).join('');
+	  `;
+	}).join('');
+
+
+// toggle buka/tutup menu
+wrap.querySelectorAll('.ed-gbtn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const gwrap = e.currentTarget.closest('.ed-gwrap');
+    const menu  = gwrap.querySelector('.ed-gmenu');
+    // tutup menu lain
+    wrap.querySelectorAll('.ed-gmenu').forEach(m => { if (m!==menu) m.classList.add('hidden'); });
+    menu.classList.toggle('hidden');
+  });
+});
+
+// pilih gender
+wrap.querySelectorAll('.ed-gpick').forEach(item => {
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const idx = Number(e.currentTarget.dataset.idx);
+    const val = e.currentTarget.dataset.g;
+    const row = this.editing.rows.find(x => x.index === idx);
+    if (!row) return;
+
+    const before = row.gender || 'unknown';   // <-- HISTORY (before)
+    row.gender = val;
+
+    const gwrap = e.currentTarget.closest('.ed-gwrap');
+    const gbtn  = gwrap.querySelector('.ed-gbtn');
+    const glabel= gwrap.querySelector('.ed-glabel');
+    const gSolid= this._genderBorder(val);
+    const gBg   = this._genderBg(val);
+    glabel.textContent = val;
+    gbtn.style.backgroundColor = gBg;
+    gbtn.style.borderColor     = gSolid;
+    gwrap.querySelector('.ed-gmenu').classList.add('hidden');
+
+    const rowEl = e.currentTarget.closest('.ed-row');
+    rowEl.style.boxShadow = `inset 4px 0 0 ${gSolid}`;
+
+    if (before !== val) {                    // <-- HISTORY (push)
+      this._edPushHistory(`Set gender (#${idx})`, [{ idx, key:'gender', before, after: val }]);
+    }
+  });
+});
+
+
+// klik di luar → tutup semua menu
+if (!this._edGenderOutsideBound) {
+  this._edGenderOutsideBound = (ev) => {
+    if (!wrap.contains(ev.target)) {
+      wrap.querySelectorAll('.ed-gmenu').forEach(m => m.classList.add('hidden'));
+    }
+  };
+  document.addEventListener('click', this._edGenderOutsideBound);
+}
+
 	this._edSyncListHeightToVideo();
 	ed.selected = ed.selected || new Set();
 	wrap.querySelectorAll('.ed-chk').forEach(chk => {
@@ -2602,35 +3352,89 @@ _edRenderList() {
 		this._edUpdateMergeBtn();
 	  });
 	});
-	this._edUpdateMergeBtn();
-  // binding (tanpa re-render) — update data langsung
-  wrap.querySelectorAll('.ed-text').forEach(inp=>{
-    inp.addEventListener('input', e=>{
-      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
-      const row = this.editing.rows.find(x=>x.index===idx);
-      if (row) row.translation = e.target.value;
-    });
+      this._edUpdateSelCount();
+      this._edUpdateMasterChk();
+      this._edUpdateMergeBtn();
+
+	wrap.querySelectorAll('.ed-gender').forEach(sel=>{
+	  sel.addEventListener('change', e=>{
+		const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+		const row = this.editing.rows.find(x=>x.index===idx);
+		if (!row) return;
+		row.gender = e.target.value;
+
+		const gSolid = this._genderBorder(row.gender);
+		const gBg    = this._genderBg(row.gender);
+		sel.style.backgroundColor = gBg;         // penting: backgroundColor
+		sel.style.borderColor     = gSolid;
+		sel.style.color           = '#E5E7EB';
+	  });
+	});
+
+// TRANSLATION
+wrap.querySelectorAll('.ed-text').forEach(inp=>{
+  // simpan nilai awal saat fokus
+  inp.addEventListener('focus', e=>{
+    const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+    e.target.dataset._orig = this.editing.rows.find(x=>x.index===idx)?.translation || '';
   });
-  wrap.querySelectorAll('.ed-gender').forEach(sel=>{
-    sel.addEventListener('change', e=>{
-      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
-      const row = this.editing.rows.find(x=>x.index===idx);
-      if (row) row.gender = e.target.value;
-    });
+  // update model realtime
+  inp.addEventListener('input', e=>{
+    const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+    const row = this.editing.rows.find(x=>x.index===idx);
+    if (row) row.translation = e.target.value;
   });
-  wrap.querySelectorAll('.ed-speaker').forEach(inp=>{
-    inp.addEventListener('input', e=>{
-      const idx = Number(e.target.closest('[data-idx]').dataset.idx);
-      const row = this.editing.rows.find(x=>x.index===idx);
-      if (row) row.speaker = e.target.value;
-    });
+  // saat blur → push ke history kalau berubah
+  inp.addEventListener('blur', e=>{
+    const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+    const row = this.editing.rows.find(x=>x.index===idx);
+    if (!row) return;
+    const before = e.target.dataset._orig ?? '';
+    const after  = e.target.value || '';
+    if (before !== after) {
+      this._edPushHistory(`Edit text (#${idx})`, [{ idx, key:'translation', before, after }]);
+    }
   });
+});
+
+// SPEAKER
+wrap.querySelectorAll('.ed-speaker').forEach(inp=>{
+  inp.addEventListener('focus', e=>{
+    const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+    e.target.dataset._orig = this.editing.rows.find(x=>x.index===idx)?.speaker || '';
+  });
+  inp.addEventListener('input', e=>{
+    const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+    const row = this.editing.rows.find(x=>x.index===idx);
+    if (!row) return;
+    row.speaker = e.target.value;
+
+    // pewarnaan langsung
+    const { solid, bg } = this._edEnsureSpeakerColor(row.speaker);
+    e.target.style.backgroundColor = bg;
+    e.target.style.borderColor     = solid;
+  });
+  inp.addEventListener('blur', e=>{
+    const idx = Number(e.target.closest('[data-idx]').dataset.idx);
+    const row = this.editing.rows.find(x=>x.index===idx);
+    if (!row) return;
+    const before = e.target.dataset._orig ?? '';
+    const after  = e.target.value || '';
+    if (before !== after) {
+      this._edPushHistory(`Set speaker (#${idx})`, [{ idx, key:'speaker', before, after }]);
+    }
+  });
+});
+
+
   wrap.querySelectorAll('.ed-play').forEach(btn=>{
     btn.addEventListener('click', e=>{
       const idx = Number(e.target.closest('[data-idx]').dataset.idx);
       this._edSeekToRow(idx, true);
     });
   });
+  this._edUpdateMasterChk?.();
+  this._edInitBulkSimple?.();
 }
 
 // app.js — final version
@@ -2640,6 +3444,11 @@ _edSeekToRow(idx, play=false){
   v.currentTime = r.startS + 0.001;
   this._edHighlight(idx, true);
   if (play){ ed.playUntil = r.endS; v.play(); }
+}
+
+_edTargetIndicesSelected() {
+  const ed = this.editing || {};
+  return Array.from(ed.selected || new Set());
 }
 
 _edRebuildSpeakerFilterOptions() {
@@ -3186,7 +3995,7 @@ async _edExport(mode, extra = {}) {
 	  if (this.ocr) return;
 	  this.ocr = {
 		rows: [], filtered: [],
-		search: '', onlyWarn: false,
+		search: '', onlyWarn: false, onlyWarnID: false,
 		videoUrl: null, playUntil: null, liveIndex: null,
 		// CC/OSD controls
 		cc: { font: 18, bottomPct: 6, widthPct: 90 }  // px & persen dari bawah
@@ -3229,8 +4038,11 @@ async _edExport(mode, extra = {}) {
 			  <input id="ocr-search" type="text" placeholder="Search (text only)"
 					 class="px-3 py-2 rounded bg-gray-700 focus:outline-none w-56" />
 			  <label class="inline-flex items-center gap-2 select-none text-sm">
-				<input id="ocr-only-warn" type="checkbox" class="accent-blue-500" /> Only warnings
+				<input id="ocr-only-warn" type="checkbox" class="accent-blue-500" /> warnings
 			  </label>
+  <label class="inline-flex items-center gap-2 select-none text-sm">
+    <input id="ocr-only-warn-id" type="checkbox" class="accent-blue-500" /> warnings ID
+  </label>
 			</div>
 			<button id="ocr-save" class="ml-2 px-3 py-2 rounded bg-green-700 hover:bg-green-600">
 			  <i class="fas fa-save mr-2"></i>Save
@@ -3276,6 +4088,9 @@ async _edExport(mode, extra = {}) {
 			  <label class="inline-flex items-center gap-2 text-sm">
 				<input id="ocr-only-warn-m" type="checkbox" class="accent-blue-500" /> Only warnings
 			  </label>
+			    <label class="inline-flex items-center gap-2 text-sm">
+    <input id="ocr-only-warn-id-m" type="checkbox" class="accent-blue-500" /> Only warnings ID
+  </label>
 			</div>
 			<div id="ocr-list" class="flex-1 overflow-y-auto"></div>
 		  </div>
@@ -3345,6 +4160,10 @@ async _edExport(mode, extra = {}) {
 	  const onOnlyWarn = (e)=>{ this.ocr.onlyWarn = !!e.target.checked; this._ocrRenderList(); };
 	  $('ocr-only-warn')?.addEventListener('change', onOnlyWarn);
 	  $('ocr-only-warn-m')?.addEventListener('change', onOnlyWarn);
+	// (BARU) — Only warnings ID
+	const onOnlyWarnID = (e)=>{ this.ocr.onlyWarnID = !!e.target.checked; this._ocrRenderList(); };
+	$('ocr-only-warn-id')?.addEventListener('change', onOnlyWarnID);
+	$('ocr-only-warn-id-m')?.addEventListener('change', onOnlyWarnID);
 
 	  $('ocr-save')?.addEventListener('click', ()=> this._ocrSaveSrt());
 	  $('ocr-export')?.addEventListener('click', ()=> this._ocrExportSrt());
@@ -3379,6 +4198,12 @@ async _edExport(mode, extra = {}) {
 		  }
 		}
 	  });
+	}
+	
+	_hasCJK(text){
+	  const t = String(text||'');
+	  try { return /\p{Script=Han}/u.test(t); }
+	  catch(e){ return /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(t); }
 	}
 
 	/* ========= OCR — loaders ========= */
@@ -3435,13 +4260,18 @@ async _edExport(mode, extra = {}) {
 	  const wrap=document.getElementById('ocr-list'); if(!wrap) return;
 	  const q=(oc.search||'').trim().toLowerCase();
 
-	  // filter: onlyWarn + search HANYA pada teks
-	  const rows = (oc.rows||[]).filter(r=>{
-		const hasWarn = (r.warn && r.warn.length);
-		if (oc.onlyWarn && !hasWarn) return false;
-		if (!q) return true;
-		return (String(r.text||'').toLowerCase()).includes(q);
-	  });
+	// filter: Only warnings (China) + Only warnings ID + search (teks saja)
+	const rows = (oc.rows||[]).filter(r=>{
+	  const txt = String(r.text||'');
+	  const hasWarn = (r.warn && r.warn.length);
+
+	  if (oc.onlyWarn && !hasWarn) return false;           // existing: pakai r.warn[] (mode China)
+	  if (oc.onlyWarnID && !this._hasCJK(txt)) return false; // NEW: tampilkan hanya baris yang mengandung huruf CJK (untuk input Indonesia)
+
+	  if (!q) return true;
+	  return txt.toLowerCase().includes(q);
+	});
+
 	  oc.filtered = rows;
 
 	  if (!rows.length){
@@ -3458,6 +4288,11 @@ async _edExport(mode, extra = {}) {
 		return `
 		  <div id="ocr-row-${r.index}" class="mb-2 rounded bg-gray-800 p-2">
 			<div class="flex items-center gap-2 whitespace-nowrap">
+						  <!-- play -->
+			  <button data-play="${r.index}"
+					  class="ml-2 px-2 py-1 shrink-0 rounded bg-gray-700 hover:bg-gray-600 text-xs">
+				<i class="fas fa-play mr-1"></i>Play
+			  </button>
 			  <!-- #no + time -->
 			  <div class="flex items-center gap-2 w-[210px] shrink-0">
 				<div class="font-mono text-xs bg-gray-900/60 px-2 py-1 rounded">#${r.index}</div>
@@ -3475,11 +4310,7 @@ async _edExport(mode, extra = {}) {
 				${warnHtml}
 			  </div>
 
-			  <!-- play -->
-			  <button data-play="${r.index}"
-					  class="ml-2 px-2 py-1 shrink-0 rounded bg-gray-700 hover:bg-gray-600 text-xs">
-				<i class="fas fa-play mr-1"></i>Play
-			  </button>
+
 			</div>
 		  </div>`;
 	  }).join('');
@@ -3599,6 +4430,707 @@ async _edExport(mode, extra = {}) {
 	  const a=document.createElement('a'); a.href=url; a.download=name; a.click();
 	  setTimeout(()=> URL.revokeObjectURL(url), 1000);
 	}
+
+	// === TAB: REVIEW & EXPORT (CapCut Project) ===
+// === TAB: REVIEW & EXPORT (Tahap 1,2,3) ===
+async loadExportTab() {
+  const tab = document.getElementById('export');
+  if (!tab) return;
+
+  // state tab export
+  this.export = this.export || { sessionId: this.currentSessionId || '', rows: [] };
+  // state nudge (persist di memori UI) - akan di-override oleh /capcut/map
+  this.exMap = this.exMap || { global_nudge_ms: 0, row_nudges: {} };
+
+  // ---------- MARKUP ----------
+  tab.innerHTML = `
+    <div class="p-4 bg-gray-800 rounded-lg">
+      <h2 class="text-2xl font-bold mb-4 text-blue-400">
+        <i class="fas fa-cloud-upload-alt mr-2"></i>Review & Export
+      </h2>
+
+      <!-- Session -->
+      <div class="flex items-center gap-2 mb-3">
+        <select id="ex-session-list" class="px-2 py-1 bg-gray-700 border border-gray-600 rounded w-[260px] text-white">
+          <option value="">— pilih session —</option>
+        </select>
+        <button id="ex-load-session" class="btn btn-primary btn-sm">Load Session</button>
+        <span id="ex-session-label" class="ml-2 text-gray-300"></span>
+      </div>
+
+      <!-- Tahap-1: Import -->
+      <div class="bg-gray-700 rounded p-3 mb-4">
+        <div class="text-sm text-gray-200 font-semibold mb-2">CapCut TTS Import (Project)</div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs text-gray-300">Project dir</span>
+          <input id="ex-project-dir" type="text" class="px-2 py-1 bg-gray-800 border border-gray-600 rounded w-[620px] text-white"
+                 placeholder="C:\\Users\\...\\CapCut\\User Data\\Projects\\com.lveditor.draft\\1022" />
+          <button id="ex-imp-project" class="btn btn-primary btn-sm">Import (project)</button>
+        </div>
+
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <button id="ex-detect" class="btn btn-slate btn-xs">Detect offset</button>
+          <button id="ex-remap"  class="btn btn-slate btn-xs">Remap strict</button>
+
+          <span class="text-xs text-gray-300">offset</span>
+          <input id="ex-offset" type="number" value="0" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+          <span id="ex-effective" class="text-xs text-emerald-300">effective offset: +0ms</span>
+
+          <span class="text-xs text-gray-300 ml-3">tol (ms)</span>
+          <input id="ex-tolerance" type="number" value="200" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+
+          <div class="flex items-center gap-2 ml-2">
+            <button id="ex-global-minus" class="btn btn-xs">-50ms (All)</button>
+            <span id="ex-global-val" class="text-xs px-2 py-0.5 rounded bg-zinc-700">+0ms</span>
+            <button id="ex-global-plus" class="btn btn-xs">+50ms (All)</button>
+          </div>
+
+          <div class="flex items-center gap-2 ml-4">
+            <button id="ex-reset-time" class="btn btn-danger btn-xs">Reset Time</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-4">
+        <div class="col-span-1">
+          <video id="ex-video" class="w-full rounded bg-black" controls playsinline></video>
+          <audio id="ex-audio" class="mt-2 w-full" controls></audio>
+
+          <!-- Play All Controls -->
+          <div class="mt-2 flex gap-2">
+            <button id="ex-play-all" class="btn btn-primary btn-sm">Play All</button>
+            <button id="ex-stop-all" class="btn btn-slate btn-sm">Stop</button>
+            <span id="ex-prep-hint" class="text-xs text-gray-300 hidden">menyiapkan audio…</span>
+          </div>
+
+          <!-- Tahap-3: Export -->
+          <div class="mt-4 bg-gray-700 p-3 rounded">
+            <div class="text-sm text-gray-200 font-semibold mb-2">Export</div>
+            <label class="text-xs text-gray-300 flex items-center gap-2 mb-1">
+              <input id="ex-center" type="checkbox" checked class="mr-1"> Center cut / ducking (untuk export)
+            </label>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              <label class="text-xs text-gray-300 flex items-center gap-2">
+                TTS vol
+                <input id="ex-tts-vol" type="number" step="0.05" value="1.0" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+              </label>
+              <label class="text-xs text-gray-300 flex items-center gap-2">
+                BG vol
+                <input id="ex-bg-vol" type="number" step="0.05" value="0.15" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+              </label>
+              <label class="text-xs text-gray-300 flex items-center gap-2">
+                Max atempo
+                <input id="ex-max-atempo" type="number" step="0.1" value="2.0" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+              </label>
+              <label class="text-xs text-gray-300 flex items-center gap-2">
+                MIN atempo
+                <input id="ex-min-atempo" type="number" step="0.05" value="1.2" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+              </label>
+              <label class="text-xs text-gray-300 flex items-center gap-2">
+                Base Tempo
+                <input id="ex-base-tempo" type="number" step="0.05" value="1.3" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+              </label>
+              <label class="text-xs text-gray-300 flex items-center gap-2">
+                Audio bitrate
+                <input id="ex-audio-br" type="text" value="128k" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+              </label>
+            </div>
+            <label class="text-xs text-gray-300 flex items-center gap-2 mb-2">
+              BGM (opsional, rel/abs path)
+              <input id="ex-bgm" type="text" class="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" placeholder="bgm.mp3 (di workspace) atau C:\\music\\bg.mp3">
+            </label>
+            <div class="flex gap-2">
+              <button id="ex-build" class="btn btn-primary btn-sm">Export MP4</button>
+              <a id="ex-download" class="hidden btn btn-slate btn-sm" href="#" target="_blank">Download</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-span-2">
+          <div id="ex-rows" class="h-[100vh] overflow-auto border border-gray-700 rounded bg-gray-900"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // ---------- UTIL ----------
+  const $   = id => document.getElementById(id);
+  const sid = () => this.export.sessionId;
+  const fmtMs = v => `${v >= 0 ? '+' : ''}${v}ms`;
+
+  const updateEffective = () => {
+    const eff = Number($('ex-offset').value || 0) + Number(this.exMap?.global_nudge_ms || 0);
+    const lab = $('ex-effective');
+    if (lab) lab.textContent = `effective offset: ${fmtMs(eff)}`;
+  };
+
+  const setVideoSrc = s => {
+    const v = $('ex-video');
+    v.src = s ? `/api/session/${encodeURIComponent(s)}/video` : '';
+    v.onerror = () => this.showNotification('Preview gagal: video tidak ditemukan / tidak didukung.', 'error');
+  };
+
+  const _toSid = (x) => {
+    if (x == null) return '';
+    if (typeof x === 'string' || typeof x === 'number') return String(x);
+    if (typeof x === 'object') {
+      if (x.session_id) return String(x.session_id);
+      if (x.id)         return String(x.id);
+      if (x.name)       return String(x.name);
+      if (x.value)      return String(x.value);
+      const ks = Object.keys(x);
+      if (ks.length === 1) return String(x[ks[0]]);
+      return JSON.stringify(x);
+    }
+    return String(x);
+  };
+
+  // ---------- API MAP ----------
+  const exLoadMap = async () => {
+    if (!sid()) return;
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/map`);
+      if (!r.ok) return;
+      const j = await r.json();
+      this.exMap = j || { global_nudge_ms: 0, row_nudges: {} };
+      $('ex-global-val').textContent = fmtMs(this.exMap.global_nudge_ms || 0);
+      updateEffective();
+    } catch {}
+  };
+
+  // ================== PLAY ROW: VIDEO BERGERAK + TTS-ONLY ==================
+  let _stopTTS = null;    // hentikan TTS segmen aktif
+  let _playingIdx = null; // baris yang sedang dipreview
+
+  const playRow = async (idx) => {
+    const rows = this.export?.rows || [];
+    const row  = rows.find(r => Number(r.index) === Number(idx));
+    if (!row) return;
+
+    // hitung waktu efektif
+    const baseMs  = typeof row.start_ms === 'number' ? row.start_ms : 0;
+    const perRow  = (this.exMap?.row_nudges || {})[String(idx)] || 0;
+    const global  = this.exMap?.global_nudge_ms || 0;
+    const offset  = Number($('ex-offset')?.value || 0);
+    const effMs   = Math.max(0, baseMs + perRow + global + offset);
+
+    const v = $('ex-video');
+    const a = $('ex-audio');
+    if (!v || !a) return;
+
+    // toggle: jika baris yg sama sedang main → STOP
+    if (_playingIdx === Number(idx) && typeof _stopTTS === 'function') {
+      try { _stopTTS(); } catch {}
+      _playingIdx = null;
+      return;
+    }
+
+    // stop TTS sebelumnya (kalau ada)
+    if (typeof _stopTTS === 'function') { try { _stopTTS(); } catch {} }
+    _playingIdx = Number(idx);
+
+    // SEEK video ke waktu efektif
+    v.currentTime = effMs / 1000;
+
+    // Simpan state sebelumnya → MUTE TOTAL untuk preview segmen (hanya TTS)
+    const prevMuted = v.muted;
+    const prevVol   = v.volume;
+    v.muted  = true;
+    v.volume = 0;
+
+    // Play video (bergerak tanpa suara ori)
+    try { await v.play(); } catch {}
+
+    // Ambil file TTS
+    let ttsUrl = null;
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/segment_audio?index=${idx}`);
+      const j = await r.json();
+      if (r.ok && j && j.file) ttsUrl = j.file;
+    } catch {}
+
+    if (!ttsUrl) {
+      this.showNotification('Segmen TTS tidak ditemukan.', 'warning');
+      v.pause();
+      v.muted  = prevMuted;
+      v.volume = prevVol;
+      _playingIdx = null;
+      return;
+    }
+
+    // Set volume TTS dan mainkan
+    try {
+      a.pause();
+      a.src = ttsUrl;
+      a.currentTime = 0;
+      a.volume = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
+
+      // definisikan STOP
+      _stopTTS = () => {
+        try { a.pause(); } catch {}
+        a.currentTime = 0;
+        v.pause();                    // video ikut berhenti
+        v.muted  = prevMuted;         // kembalikan state video
+        v.volume = prevVol;
+        _stopTTS   = null;
+        _playingIdx = null;
+      };
+
+      a.onended = () => {
+        v.pause();
+        v.muted  = prevMuted;
+        v.volume = prevVol;
+        _stopTTS   = null;
+        _playingIdx = null;
+      };
+
+      await a.play();
+    } catch (e) {
+      this.showNotification('Gagal memutar TTS.', 'error');
+      v.pause();
+      v.muted  = prevMuted;
+      v.volume = prevVol;
+      _playingIdx = null;
+    }
+  };
+  // =======================================================================
+
+  // ================== PLAY ALL (WebAudio: sinkron, anti-lag) ===============
+  let _waCtx = null;               // AudioContext
+  let _waGain = null;              // GainNode untuk volume TTS
+  let _waSources = [];             // semua source yg dijadwalkan
+  let _waCleanupVideo = null;      // fungsi restore video (mute/volume)
+
+  const _computeTempo = (slotMs, durMs) => {
+    const base = Number($('ex-base-tempo')?.value || 1.0);
+    const maxA = Number($('ex-max-atempo')?.value || 2.0);
+    const minA = Number($('ex-min-atempo')?.value || 1.0);
+    if (!slotMs || !durMs) return 1.0;
+    let tempo = (durMs / slotMs) * base;
+    if (tempo > 1.0) tempo = Math.min(tempo, maxA);
+    else             tempo = Math.max(tempo, minA);
+    // batas aman HTML5 audio
+    return Math.max(0.5, Math.min(4.0, tempo));
+  };
+
+  const _fetchDecode = async (url, ctx) => {
+    const res = await fetch(url);
+    const ab  = await res.arrayBuffer();
+    return await ctx.decodeAudioData(ab);
+  };
+
+  const _buildPlayAllSchedule = async (ctx) => {
+    const rows = (this.export?.rows || []).slice().sort((a,b) => (a.start_ms||0)-(b.start_ms||0));
+    const sch = [];
+    // paralel: ambil semua url dulu
+    const urlPromises = rows.map(async r => {
+      try {
+        const rr = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/segment_audio?index=${r.index}`);
+        const jj = await rr.json().catch(()=>null);
+        return (rr.ok && jj && jj.file) ? { idx: r.index, url: jj.file } : null;
+      } catch { return null; }
+    });
+    const urlList = (await Promise.all(urlPromises)).filter(Boolean);
+
+    // decode paralel
+    const decPromises = urlList.map(async u => {
+      try {
+        const buf = await _fetchDecode(u.url, ctx);
+        return { idx: u.idx, url: u.url, buffer: buf };
+      } catch { return null; }
+    });
+    const decoded = (await Promise.all(decPromises)).filter(Boolean);
+
+    // jadikan schedule (hitung tempo, slot, start efektif)
+    for (const r of rows) {
+      const got = decoded.find(d => d.idx === r.index);
+      if (!got) continue;
+      const slotMs = Math.max(0, (r.end_ms||0) - (r.start_ms||0));
+      const durMs  = Math.round((got.buffer.duration || 0) * 1000);
+
+      const perRow = (this.exMap?.row_nudges || {})[String(r.index)] || 0;
+      const global = this.exMap?.global_nudge_ms || 0;
+      const offset = Number($('ex-offset')?.value || 0);
+      const effStart = Math.max(0, (r.start_ms||0) + perRow + global + offset);
+
+      const tempo = _computeTempo(slotMs, durMs);
+      sch.push({ idx: r.index, buffer: got.buffer, effStart, slotMs, tempo });
+    }
+    sch.sort((a,b) => a.effStart - b.effStart);
+    return sch;
+  };
+
+  const stopPlayAll = () => {
+    // stop semua source
+    try { _waSources.forEach(s => { try { s.stop(0); } catch {} }); } catch {}
+    _waSources = [];
+    // suspend audioctx biar hemat
+    if (_waCtx && _waCtx.state === 'running') { _waCtx.suspend().catch(()=>{}); }
+    const v = $('ex-video');
+    try { v.pause(); } catch {}
+    if (_waCleanupVideo) { try { _waCleanupVideo(); } catch {}; _waCleanupVideo = null; }
+    // UI
+    $('ex-play-all')?.removeAttribute('disabled');
+    $('ex-prep-hint')?.classList.add('hidden');
+  };
+
+  const playAll = async () => {
+    if (!sid()) return this.showNotification('Load Session dulu', 'error');
+
+    $('ex-play-all')?.setAttribute('disabled', 'true');
+    $('ex-prep-hint')?.classList.remove('hidden');
+
+    // AudioContext on demand (harus di gesture user)
+    if (!_waCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      _waCtx = new AC();
+      _waGain = _waCtx.createGain();
+      _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
+      _waGain.connect(_waCtx.destination);
+      // volume slider live update saat play all
+      $('ex-tts-vol')?.addEventListener('input', () => {
+        if (_waGain) _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
+      });
+    } else if (_waCtx.state === 'suspended') {
+      await _waCtx.resume().catch(()=>{});
+    }
+
+    // ambil map terbaru
+    await exLoadMap();
+
+    // bangun schedule + decode semua dulu
+    let sch = [];
+    try {
+      sch = await _buildPlayAllSchedule(_waCtx);
+    } catch (e) {
+      $('ex-play-all')?.removeAttribute('disabled');
+      $('ex-prep-hint')?.classList.add('hidden');
+      return this.showNotification('Gagal menyiapkan Play All.', 'error');
+    }
+    if (!sch.length) {
+      $('ex-play-all')?.removeAttribute('disabled');
+      $('ex-prep-hint')?.classList.add('hidden');
+      return this.showNotification('Tidak ada segmen TTS untuk diputar.', 'warning');
+    }
+
+    // siapkan video
+    const v = $('ex-video');
+    const prevMuted = v.muted;
+    const prevVol   = v.volume;
+    v.muted = true; v.volume = 0;
+    _waCleanupVideo = () => { v.muted = prevMuted; v.volume = prevVol; };
+
+    // start video pada segmen pertama
+    const baseMs = sch[0].effStart || 0;
+    v.currentTime = baseMs / 1000;
+    try { await v.play(); } catch {}
+
+    // waktu dasar audio
+    const t0 = _waCtx.currentTime;
+
+    // jadwalkan semua source persis
+    _waSources = [];
+    for (const seg of sch) {
+      const startDelay = Math.max(0, (seg.effStart - baseMs) / 1000); // detik
+      const src = _waCtx.createBufferSource();
+      src.buffer = seg.buffer;
+      src.playbackRate.value = seg.tempo;
+      src.connect(_waGain);
+
+      // start & stop sesuai slot (seperti atrim setelah atempo)
+      const startAt = t0 + startDelay;
+      const stopAt  = startAt + Math.max(0, seg.slotMs) / 1000;
+      try {
+        src.start(startAt);
+        if (seg.slotMs > 0) src.stop(stopAt);
+      } catch {}
+
+      _waSources.push(src);
+    }
+
+    // auto berhenti setelah segmen terakhir selesai
+    const lastStopIn = ((sch[sch.length-1].effStart - baseMs) + (sch[sch.length-1].slotMs)) / 1000;
+    setTimeout(() => stopPlayAll(), Math.max(0, lastStopIn * 1000) + 200);
+
+    $('ex-prep-hint')?.classList.add('hidden');
+  };
+  // =======================================================================
+
+  const nudgeRow = async (idx, delta) => {
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/nudge_row`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ index: Number(idx), delta_ms: Number(delta) })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.detail || 'Nudge gagal');
+      await exLoadMap();
+      // update badge kecil tanpa reload total
+      const cur = (this.exMap?.row_nudges || {})[String(idx)] || 0;
+      const span = document.getElementById(`ex-nudge-val-${idx}`);
+      if (span) span.textContent = fmtMs(cur);
+    } catch (e) {
+      this.showNotification(String(e), 'error');
+    }
+  };
+
+  const nudgeAll = async (delta) => {
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/nudge_all`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ delta_ms: Number(delta) })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.detail || 'Nudge all gagal');
+      await exLoadMap();
+      await reloadRows();
+    } catch (e) {
+      this.showNotification(String(e), 'error');
+    }
+  };
+
+  // Reset Time (hapus global + semua row_nudges)
+  const resetTime = async () => {
+    if (!sid()) return;
+    try {
+      // coba endpoint langsung
+      let r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/reset_nudges`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({})
+      });
+      if (!r.ok) {
+        // fallback: manual zero-ing dengan delta kebalikan
+        await exLoadMap();
+        const g = Number(this.exMap?.global_nudge_ms || 0);
+        if (g) {
+          await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/nudge_all`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ delta_ms: -g })
+          });
+        }
+        const rn = this.exMap?.row_nudges || {};
+        const keys = Object.keys(rn);
+        for (const k of keys) {
+          const v = Number(rn[k] || 0);
+          if (!v) continue;
+          await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/nudge_row`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ index: Number(k), delta_ms: -v })
+          });
+        }
+      }
+      await exLoadMap();
+      await reloadRows();
+      this.showNotification('Timing direset ke kondisi asli.', 'success');
+    } catch (e) {
+      this.showNotification('Reset gagal.', 'error');
+    }
+  };
+
+  // ---------- sessions ----------
+  const fillSessions = async () => {
+    const sel = $('ex-session-list');
+    sel.innerHTML = `<option value="">— pilih session —</option>`;
+    try {
+      const r = await fetch('/api/sessions');
+      const j = await r.json();
+      const arr = Array.isArray(j) ? j : (j.sessions || j.data || j.items || []);
+      const seen = new Set();
+      (arr || []).forEach(item => {
+        const id = _toSid(item).trim();
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const op = document.createElement('option');
+        op.value = id; op.textContent = id; sel.appendChild(op);
+      });
+      if (this.currentSessionId && seen.has(this.currentSessionId)) {
+        sel.value = this.currentSessionId;
+      }
+    } catch (e) {
+      console.error('sessions payload:', e);
+      this.showNotification('Gagal memuat daftar session.', 'error');
+    }
+  };
+
+  const loadSession = async (s) => {
+    if (!s) { this.showNotification('Pilih session terlebih dahulu.', 'warning'); return; }
+    this.export.sessionId = s;
+    const lab = $('ex-session-label');
+    if (lab) lab.textContent = String(s);
+    setVideoSrc(s);
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(s)}/review`);
+      const j = await r.json();
+      this.export.rows = j.rows || [];
+      await exLoadMap();
+      renderRows();
+    } catch (e) {
+      this.showNotification('Gagal memuat data session.', 'error');
+    }
+  };
+
+  const reloadRows = async () => {
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(sid())}/review`);
+      const j = await r.json();
+      this.export.rows = j.rows || [];
+      renderRows();
+    } catch {
+      this.showNotification('Gagal memuat data session', 'error');
+    }
+  };
+
+  const msToSrt = (ms) => {
+    const z = m => String(m).padStart(2,'0');
+    const ms3 = String(ms%1000).padStart(3,'0');
+    const s = Math.floor(ms/1000);
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+    return `${z(h)}:${z(m)}:${z(ss)},${ms3}`;
+  };
+
+  // ---------- RENDER LIST ----------
+  const renderRows = () => {
+    const box = $('ex-rows');
+    const rows = this.export.rows || [];
+    if (!rows.length) { box.innerHTML = `<div class="p-3 text-gray-400">No rows.</div>`; return; }
+
+    const rnudges = (this.exMap?.row_nudges) || {};
+    box.innerHTML = rows.map(r => {
+      const hasTTS = !!r.tts_path;
+      const nudge = Number(rnudges[String(r.index)] || 0);
+      return `
+        <div class="flex items-center justify-between px-3 py-2 border-b border-gray-800">
+          <div class="text-xs text-gray-400 w-[160px]">
+            <div>${msToSrt(r.start_ms)}</div>
+            <div>${msToSrt(r.end_ms)}</div>
+          </div>
+          <div class="text-xs flex-1">
+            ${r.gender ? `<span class="px-2 py-0.5 rounded bg-gray-700 text-gray-200 mr-2">${r.gender}</span>` : ''}
+            <span class="text-gray-100">${this.escapeHtml(r.text||'')}</span>
+          </div>
+          <div class="ml-2 flex items-center gap-2">
+            ${hasTTS ? `<button class="btn btn-primary btn-xs" data-play="${r.index}">Play</button>`
+                      : `<span class="text-xs text-gray-500">No TTS</span>`}
+            <div class="flex items-center gap-1" data-nudge="${r.index}">
+              <button class="btn btn-xs" data-nudge-delta="-50">-50ms</button>
+              <span id="ex-nudge-val-${r.index}" class="text-xs px-2 py-0.5 rounded bg-zinc-700">${fmtMs(nudge)}</span>
+              <button class="btn btn-xs" data-nudge-delta="+50">+50ms</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  // ---------- EVENTS ----------
+  $('ex-load-session').onclick = () => loadSession($('ex-session-list').value);
+
+  $('ex-imp-project').onclick = async () => {
+    if (!sid()) return this.showNotification('Load Session dulu', 'error');
+    const prj = $('ex-project-dir').value.trim();
+    if (!prj) return this.showNotification('Isi Project dir dulu', 'warning');
+    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/import`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ project_dir: prj })
+    });
+    const t = await r.text();
+    if (!r.ok) return this.showNotification(`Import gagal: ${t}`, 'error');
+    this.showNotification('Import OK', 'success');
+    await exLoadMap();
+    await reloadRows();
+  };
+
+  $('ex-detect').onclick = async () => {
+    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/detect_offset`, { method: 'POST' });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) return this.showNotification(j?.detail || 'Gagal mendeteksi offset', 'error');
+    $('ex-offset').value = j.suggested_offset_ms ?? 0;
+    updateEffective();
+    this.showNotification(`Suggested offset: ${j.suggested_offset_ms} ms (pairs: ${j.pairs_used})`, 'success');
+  };
+
+  $('ex-remap').onclick = async () => {
+    if (!$('ex-tolerance').value) $('ex-tolerance').value = 200; // default 200
+    const body = {
+      global_offset_ms: Number($('ex-offset').value || 0),
+      tolerance_ms: Number($('ex-tolerance').value || 200),
+    };
+    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/remap`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) return this.showNotification(j?.detail || JSON.stringify(j), 'error');
+    this.showNotification(`Remap: matched ${j.matched}/${j.total_rows}`, 'success');
+    await exLoadMap();
+    await reloadRows();
+  };
+
+  $('ex-global-minus').onclick = () => nudgeAll(-50);
+  $('ex-global-plus').onclick  = () => nudgeAll(+50);
+
+  $('ex-reset-time').onclick = () => resetTime();
+
+  // offset input → refresh effective label
+  $('ex-offset').addEventListener('input', updateEffective);
+
+  // Delegasi klik untuk container daftar (Play & Nudge per-baris)
+  document.getElementById('ex-rows').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    // Play = video play (mute 0) + TTS (toggle)
+    if (btn.dataset.play) {
+      await playRow(btn.dataset.play);
+      return;
+    }
+
+    // Nudge per-baris
+    if (btn.dataset.nudgeDelta) {
+      const host  = btn.closest('[data-nudge]');
+      const idx   = Number(host?.dataset.nudge || 0);
+      const delta = Number(btn.dataset.nudgeDelta);
+      await nudgeRow(idx, delta);
+      return;
+    }
+  });
+
+  // Play All / Stop
+  $('ex-play-all').onclick = () => playAll();
+  $('ex-stop-all').onclick  = () => stopPlayAll();
+
+  // ---------- EXPORT ----------
+  $('ex-build').onclick = async () => {
+    if (!sid()) return this.showNotification('Load Session dulu', 'error');
+    const body = {
+      center_cut: $('ex-center').checked,
+      bgm_path: $('ex-bgm').value.trim(),
+      tts_vol: Number($('ex-tts-vol').value || 1),
+      bg_vol: Number($('ex-bg-vol').value || 0.15),
+      audio_bitrate: $('ex-audio-br').value || '128k',
+      max_atempo: Number($('ex-max-atempo').value || 2.0),
+      min_atempo: Number($('ex-min-atempo')?.value || 1.2),
+      base_tempo: Number($('ex-base-tempo')?.value || 1.3),
+      out_name: "export.mp4",
+    };
+    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/export/build`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) return this.showNotification(JSON.stringify(j), 'error');
+    this.showNotification('Export OK', 'success');
+    const a = $('ex-download');
+    a.href = j.output; a.classList.remove('hidden'); a.textContent = 'Open MP4';
+  };
+
+  // ---------- INIT ----------
+  await fillSessions();
+  if (this.currentSessionId) {
+    $('ex-session-list').value = this.currentSessionId;
+    await loadSession(this.currentSessionId);
+  }
+}
+
+
+
 
 }
 

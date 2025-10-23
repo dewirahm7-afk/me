@@ -114,8 +114,9 @@ def _global_link_speakers(
     wav16k_path: Path,
     min_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
-    link_threshold: float = 0.82,
+    link_threshold: float = 0.86,
     samples_per_spk: int = 8,
+    min_sample_dur: float = 1.0,     # NEW
     device: str = 'auto',
 ) -> Tuple[dict, dict]:
     with open(seg_path, 'r', encoding='utf-8') as f:
@@ -127,7 +128,7 @@ def _global_link_speakers(
     if not isinstance(segments, list):
         raise ValueError("segments json must be a list or have 'segments' list")
 
-    samples = _gather_samples(segments, samples_per_spk=samples_per_spk)
+    samples = _gather_samples(segments, samples_per_spk=samples_per_spk, min_dur=min_sample_dur)
     local_spks = list(samples.keys())
     if not local_spks:
         return seg, spk
@@ -140,6 +141,7 @@ def _global_link_speakers(
         centroids[sp] = c
 
     global_ids, global_vecs, mapping = [], [], {}
+    global_wgts = []  # NEW: total durasi (detik) per cluster
     dur_by = {sp: sum(b-a for a,b in samples[sp]) for sp in local_spks}
 
     for sp in sorted(local_spks, key=lambda x: dur_by.get(x, 0), reverse=True):
@@ -147,6 +149,7 @@ def _global_link_speakers(
         if v is None:
             gid = f"SPK_{len(global_ids)+1:02d}"
             global_ids.append(gid); global_vecs.append(None); mapping[sp] = gid
+            global_wgts.append(float(dur_by.get(sp, 0.0)))  # NEW
             continue
         best_i, best_sim = None, -1.0
         for i, gvec in enumerate(global_vecs):
@@ -155,12 +158,17 @@ def _global_link_speakers(
             if s > best_sim: best_sim = s; best_i = i
         if best_i is not None and best_sim >= link_threshold:
             gvec = global_vecs[best_i]
-            new = (gvec + v); new = new / (np.linalg.norm(new) + 1e-8)
+            w_old = float(global_wgts[best_i])
+            w_new = float(dur_by.get(sp, 0.0))
+            new = (gvec * (w_old + 1e-8) + v * (w_new + 1e-8))
+            new = new / (np.linalg.norm(new) + 1e-8)
             global_vecs[best_i] = new
+            global_wgts[best_i] = w_old + w_new
             mapping[sp] = global_ids[best_i]
         else:
             gid = f"SPK_{len(global_ids)+1:02d}"
             global_ids.append(gid); global_vecs.append(v); mapping[sp] = gid
+            global_wgts.append(float(dur_by.get(sp, 0.0)))  # NEW
 
     if isinstance(max_speakers, int) and len(global_ids) > max_speakers:
         def nearest_pair(vecs):
@@ -174,12 +182,15 @@ def _global_link_speakers(
         while len(global_ids) > max_speakers and len(global_ids) >= 2:
             i,j,_ = nearest_pair(global_vecs)
             if i is None: break
-            new = (global_vecs[i] + global_vecs[j]); new = new / (np.linalg.norm(new)+1e-8)
+            wi, wj = float(global_wgts[i]), float(global_wgts[j])
+            new = (global_vecs[i] * (wi + 1e-8) + global_vecs[j] * (wj + 1e-8))
+            new = new / (np.linalg.norm(new)+1e-8)
             global_vecs[i] = new
+            global_wgts[i] = wi + wj
             g_j = global_ids[j]; g_i = global_ids[i]
             for k,v in list(mapping.items()):
                 if v == g_j: mapping[k] = g_i
-            del global_vecs[j]; del global_ids[j]
+            del global_vecs[j]; del global_ids[j]; del global_wgts[j]
 
     seg_key = _safe_speaker_key(segments[0]) or 'speaker'
     for s in segments:
@@ -382,8 +393,9 @@ class ProcessingManager:
                     seg_path, spk_path, Path(session.wav_16k),
                     min_speakers=cfg.get("min_speakers"),
                     max_speakers=cfg.get("max_speakers"),
-                    link_threshold=float(cfg.get("link_threshold", 0.82)),
+                    link_threshold=float(cfg.get("link_threshold", 0.86)),
                     samples_per_spk=int(cfg.get("samples_per_spk", 8)),
+                    min_sample_dur=float(cfg.get("min_sample_dur", 1.0)),   # NEW
                     device='auto',
                 )
                 seg_link = seg_path.with_name(seg_path.stem + "_linked.json")

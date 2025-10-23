@@ -130,7 +130,7 @@ class TranslateEngine:
         target_lang = (cfg.get("target_lang") or "id").strip().lower()
         style       = (cfg.get("mode") or "dubbing").strip().lower()
         engine      = (cfg.get("engine") or "llm").strip().lower()
-        batch       = max(1, int(cfg.get("batch", 20)))
+        batch       = max(1, int(cfg.get("batch", 30)))
         workers     = max(1, int(cfg.get("workers", 1)))
         temperature = float(cfg.get("temperature", 0.1))
         top_p       = float(cfg.get("top_p", 0.3))
