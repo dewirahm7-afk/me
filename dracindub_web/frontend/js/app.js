@@ -604,26 +604,39 @@ class DracinApp {
         }
     }
 
-    async extractAudio() {
-        try {
-            this.showLoading('Extracting audio...');
-            const response = await fetch(`/api/session/${this.currentSessionId}/extract-audio`, {
-                method: 'POST'
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                this.showNotification('Audio extracted successfully', 'success');
-                this.updateProgress(40, 'Audio extracted');
-            } else {
-                throw new Error('Failed to extract audio');
-            }
-        } catch (error) {
-            this.showNotification(`Error: ${error.message}`, 'error');
-        } finally {
-            this.hideLoading();
-        }
-    }
+	async extractAudio() {
+	  try {
+		this.showLoading('Extracting audio...');
+		const body = new URLSearchParams({
+		  vocal_only: 'true',      // paksa vokal saja
+		  prefer: 'demucs'         // jangan biarkan auto jatuh ke ffmpeg_mid
+		});
+
+		const res = await fetch(`/api/session/${this.currentSessionId}/extract-audio`, {
+		  method: 'POST',
+		  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		  body
+		});
+
+		const text = await res.text();
+		if (!res.ok) {
+		  this.showNotification(`Extract failed: ${text}`, 'error');
+		  return;
+		}
+
+		let data = {};
+		try { data = JSON.parse(text); } catch {}
+		const iso = data.vocal_isolation || 'unknown';
+		this.showNotification(`Audio extracted (${iso})`, 'success');
+		this.updateProgress(40, 'Audio extracted');
+		this.appendLog?.(JSON.stringify(data));
+	  } catch (error) {
+		this.showNotification(`Error: ${error.message}`, 'error');
+	  } finally {
+		this.hideLoading();
+	  }
+	}
+
 
     // Tab 1 – Diarization
     async runDiarization() {
@@ -4516,7 +4529,7 @@ async loadExportTab() {
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 BG vol
-                <input id="ex-bg-vol" type="number" step="0.05" value="0.15" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+                <input id="ex-bg-vol" type="number" step="0.05" value="1" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 Max atempo
@@ -5104,7 +5117,7 @@ async loadExportTab() {
       center_cut: $('ex-center').checked,
       bgm_path: $('ex-bgm').value.trim(),
       tts_vol: Number($('ex-tts-vol').value || 1),
-      bg_vol: Number($('ex-bg-vol').value || 0.15),
+      bg_vol: Number($('ex-bg-vol').value || 1),
       audio_bitrate: $('ex-audio-br').value || '128k',
       max_atempo: Number($('ex-max-atempo').value || 2.0),
       min_atempo: Number($('ex-min-atempo')?.value || 1.2),

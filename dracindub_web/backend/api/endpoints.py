@@ -79,13 +79,127 @@ async def generate_workdir(
 @router.post("/api/session/{session_id}/extract-audio")
 async def extract_audio(
     session_id: str,
+    vocal_only: str = Form("true"),
+    prefer: str = Form("demucs"),
     pm = Depends(get_processing_manager),
 ):
+    """
+    Demucs-only extractor.
+
+    Output minimal:
+      - source_video_16k.wav : vocals only, mono 16 kHz (untuk diarization / pipeline)
+      - instrument.wav       : BGM only (hasil no_vocals dari Demucs)
+
+    Tidak menyisakan file lain (hemat disk).
+    """
+    import shutil, subprocess, os
+    from pathlib import Path
+
+    def _which(cmd: str) -> bool:
+        return shutil.which(cmd) is not None
+
+    def _run(cmd: list) -> tuple[int, str, str]:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return p.returncode, p.stdout, p.stderr
+
+    def _to_16k_mono(inp: Path, outp: Path, gain_db: float = 3.0) -> None:
+        """
+        - pan=mono equal-power (0.707) → jaga persepsi loudness
+        - volume=+3dB (bisa ubah), alimiter untuk cegah clipping
+        """
+        af = f"pan=mono|c0=0.707*FL+0.707*FR,volume={gain_db}dB,alimiter=limit=0.96"
+        rc, _, err = _run([
+            "ffmpeg","-y","-i", str(inp),
+            "-af", af, "-ac","1","-ar","16000","-c:a","pcm_s16le", str(outp)
+        ])
+        if rc != 0:
+            raise HTTPException(status_code=500, detail=f"ffmpeg resample failed:\n{err}")
+
     try:
-        await pm.extract_audio(session_id)
-        return JSONResponse({"status": "audio_extracted"})
+        sess = pm.get_session(session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if not getattr(sess, "video_path", None):
+            raise HTTPException(status_code=404, detail="Video not found in session")
+
+        ws = Path(sess.workdir).resolve()
+        ws.mkdir(parents=True, exist_ok=True)
+
+        vid = Path(sess.video_path).resolve()
+        if not vid.exists():
+            raise HTTPException(status_code=404, detail="Video file not found")
+
+        # === 0) Cek Demucs tersedia ===
+        demucs_cmd = None
+        if _which("demucs"):
+            demucs_cmd = ["demucs"]
+        elif _which("python"):
+            # fallback: python -m demucs
+            demucs_cmd = ["python", "-m", "demucs"]
+        if demucs_cmd is None:
+            raise HTTPException(status_code=500, detail="Demucs not installed or not on PATH")
+
+        # === 1) Jalankan Demucs langsung dari file video (hemat disk) ===
+        outdir = ws / "_sep_demucs"
+        outdir.mkdir(exist_ok=True)
+        rc, _, err = _run(demucs_cmd + ["--two-stems=vocals", "-o", str(outdir), str(vid)])
+        if rc != 0:
+            raise HTTPException(status_code=500, detail=f"Demucs failed:\n{err}")
+
+        # === 2) Ambil kedua stem secara eksplisit ===
+        #    - vocals.wav       -> source_video_16k.wav (mono 16k)
+        #    - no_vocals.wav    -> instrument.wav
+        vocals_path = None
+        inst_path = None
+        # pilih kandidat terbaru jika lebih dari satu (misal multiple runs)
+        cands_voc = sorted(list(outdir.rglob("vocals.wav")), key=lambda p: p.stat().st_mtime, reverse=True)
+        cands_no  = sorted(list(outdir.rglob("no_vocals.wav")), key=lambda p: p.stat().st_mtime, reverse=True)
+        if cands_voc:
+            vocals_path = cands_voc[0]
+        if cands_no:
+            inst_path = cands_no[0]
+        if vocals_path is None or inst_path is None:
+            raise HTTPException(status_code=500, detail="Demucs output not found: vocals.wav / no_vocals.wav")
+
+        # === 3) Tulis final minimal ===
+        out_16k = ws / "source_video_16k.wav"
+        out_bgm = ws / "instrument.wav"
+
+        _to_16k_mono(vocals_path, out_16k)      # convert -> mono 16k
+        # pindah (hemat disk). Jika beda drive, shutil.move akan copy+delete.
+        if out_bgm.exists():
+            try: out_bgm.unlink()
+            except: pass
+        shutil.move(str(inst_path), str(out_bgm))
+
+        # >>>> TAMBAHKAN INI <<<<
+        pm.session_manager.update_session(
+            session_id,
+            wav_16k=out_16k,                    # agar diarization tidak error "16kHz audio not found"
+            status='audio_ready',
+            progress=40,
+            current_step='Audio extracted (Demucs)'
+        )
+        await pm._notify_session_update(session_id)
+        # <<<< SAMPAI SINI <<<<
+
+        # (opsional) bersihkan folder demucs untuk hemat disk:
+        # import shutil as _sh; _sh.rmtree(outdir, ignore_errors=True)
+
+        return JSONResponse({
+            "status": "audio_extracted",
+            "vocal_isolation": "demucs",
+            "paths": {
+                "vocals_16k": str(out_16k),
+                "instrument": str(out_bgm),
+            }
+        })
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        import traceback
+        raise HTTPException(status_code=400, detail=f"{e}\n{traceback.format_exc()}")
 
 
 @router.post("/api/session/{session_id}/diarization")
@@ -2324,7 +2438,7 @@ def export_build(
         center_cut = bool(raw_center)
 
     tts_vol    = float(body.get("tts_vol", 1.0))
-    bg_vol     = float(body.get("bg_vol", 0.15))
+    bg_vol     = float(body.get("bg_vol", 1))
     audio_br   = str(body.get("audio_bitrate", "128k"))
     out_name   = (body.get("out_name") or "export.mp4").strip() or "export.mp4"
     bgm_path   = (body.get("bgm_path") or "").strip()
