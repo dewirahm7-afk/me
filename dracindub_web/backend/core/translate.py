@@ -53,32 +53,34 @@ def build_system_prompt(style: str, target_lang: str) -> str:
     # >>> DUBBING & NORMAL: isinya SAMA persis <<<
     if style == "dubbing":
         rules = (
-            f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
-            "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
-            "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
-            "- Untuk kalimat tanya, GUNAKAN tanda tanya (?) meskipun tidak ada di teks sumber.\n"
-            "- Untuk kalimat seru, GUNAKAN tanda seru (!) meskipun tidak ada di teks sumber.\n"
-            "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
-            "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
-            "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
-            "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
-            "- Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dsb.\n"
-            "- Ubah 'Hmph' menjadi 'Hmm'.\n"
+            f"TERJEMAHKAN ke bahasa {L} untuk DUBBING dengan KETAT ikuti aturan:\n"
+            "1. HARUS SINGKAT & RINGKAS - potong kata tidak perlu\n"
+            "2. Struktur kalimat SIMPLE dan langsung\n"
+            "3. Hapus koma dan titik (,.)\n"
+            "4. ANGKA → TULIS HURUF (contoh: 'dua puluh' bukan '20')\n"
+            "5. Natural untuk diucapkan - prioritaskan kelancaran\n"
+            "6. JANGAN tambahkan kata penghubung yang tidak perlu\n"
+            "7. Untuk nama: pertahankan aslinya\n"
+            "8. Ubah 'Hmph' menjadi 'Hmm'\n"
+            "9. Kalimat tanya → pakai '?'; kalimat seru → pakai '!'.\n"
+            "10. Pronomina: aku/kamu; dia; mereka; kita/kami sesuai konteks.\n"
+            "JIKA TERLALU PANDAI = SALAH. TEKANAN PADA SINGKAT & ALAMI."
         )
     else:
         # NORMAL → pakai aturan yang sama supaya tidak pusing beda gaya
         rules = (
-            f"- Terjemahkan ke bahasa {L} untuk *dubbing*.\n"
-            "- terjemahkan yang Singkat, RINGKAS, AKURAT, natural, modern, mudah diucapkan TTS; jangan panjang.\n"
-            "- Hindari koma ',' berlebihan, titik tiga, dan emoji (mengganggu TTS).\n"
-            "- Untuk kalimat tanya, GUNAKAN tanda tanya (?) meskipun tidak ada di teks sumber.\n"
-            "- Untuk kalimat seru, GUNAKAN tanda seru (!) meskipun tidak ada di teks sumber.\n"
-            "- ANGKA → TULIS DENGAN HURUF (WAJIB).\n"
-            "- Nama orang/tempat/gelar pertahankan konsisten; jangan gonta-ganti.\n"
-            "- Jangan terjemahkan nama diri (tetap seperti aslinya bila nama).\n"
-            "- Pronomina konsisten: pakai aku/kamu (hindari 'kau/engkau'); dia, mereka, kita/kami sesuai konteks.\n"
-            "- Hindari partikel percakapan yang tidak perlu seperti 'dong', 'ya', 'sih', 'deh', dsb.\n"
-            "- Ubah 'Hmph' menjadi 'Hmm'.\n"
+            f"TERJEMAHKAN ke bahasa {L} untuk DUBBING dengan KETAT ikuti aturan:\n"
+            "1. HARUS SINGKAT & RINGKAS - potong kata tidak perlu\n"
+            "2. Struktur kalimat SIMPLE dan langsung\n"
+            "3. Hapus koma dan titik (,.)\n"
+            "4. ANGKA → TULIS HURUF (contoh: 'dua puluh' bukan '20')\n"
+            "5. Natural untuk diucapkan - prioritaskan kelancaran\n"
+            "6. JANGAN tambahkan kata penghubung yang tidak perlu\n"
+            "7. Untuk nama: pertahankan aslinya\n"
+            "8. Ubah 'Hmph' menjadi 'Hmm'\n"
+            "9. Kalimat tanya → pakai '?'; kalimat seru → pakai '!'.\n"
+            "10. Pronomina: aku/kamu; dia; mereka; kita/kami sesuai konteks.\n"
+            "JIKA TERLALU PANDAI = SALAH. TEKANAN PADA SINGKAT & ALAMI."
         )
 
     schema = (

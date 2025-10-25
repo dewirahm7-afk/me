@@ -1,4 +1,10 @@
 // frontend/js/app.js - VERSION LENGKAP dengan Tab 2 Translate
+// --- GLOBAL util + state ---
+const $ = (id) => document.getElementById(id);
+
+// hindari [object Object], simpan URL string & peta tempo segmen
+if (!window._exPreview) window._exPreview = { url: null, tempoMap: {} };
+
 class DracinApp {
     constructor() {
         this.currentSessionId = null;
@@ -4529,19 +4535,19 @@ async loadExportTab() {
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 BG vol
-                <input id="ex-bg-vol" type="number" step="0.05" value="1" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+                <input id="ex-bg-vol" type="number" step="0.05" value="0.8" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 Max atempo
-                <input id="ex-max-atempo" type="number" step="0.1" value="2.0" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+                <input id="ex-max-atempo" type="number" step="0.1" value="2.8" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 MIN atempo
-                <input id="ex-min-atempo" type="number" step="0.05" value="1.2" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+                <input id="ex-min-atempo" type="number" step="0.05" value="1.4" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 Base Tempo
-                <input id="ex-base-tempo" type="number" step="0.05" value="1.3" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
+                <input id="ex-base-tempo" type="number" step="0.05" value="1.4" class="w-24 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" />
               </label>
               <label class="text-xs text-gray-300 flex items-center gap-2">
                 Audio bitrate
@@ -4550,7 +4556,7 @@ async loadExportTab() {
             </div>
             <label class="text-xs text-gray-300 flex items-center gap-2 mb-2">
               BGM (opsional, rel/abs path)
-              <input id="ex-bgm" type="text" class="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" placeholder="bgm.mp3 (di workspace) atau C:\\music\\bg.mp3">
+              <input id="ex-bgm" type="text" class="w-full px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white" placeholder="paste url file instrument.wav di workspaces">
             </label>
             <div class="flex gap-2">
               <button id="ex-build" class="btn btn-primary btn-sm">Export MP4</button>
@@ -4610,6 +4616,117 @@ async loadExportTab() {
       updateEffective();
     } catch {}
   };
+
+// === NEW: bangun preview audio (server-side atempo) ===
+// Build preview audio + tempo_map
+const exBuildPreviewAudio = async () => {
+  if (typeof sid !== 'function' || !sid()) throw new Error('Load Session dulu');
+
+  const payload = {
+    base_tempo: Number($('ex-base-tempo')?.value || 1.4),
+    max_atempo: Number($('ex-max-atempo')?.value || 2.8),
+    tts_vol:    Number($('ex-tts-vol')?.value || 1.0),
+    bg_vol:     Number($('ex-bg-vol')?.value  || 0.8),
+    center_cut: !!$('ex-center-cut')?.checked,
+    include_original: !!$('ex-include-orig')?.checked, // default: TTS only
+    audio_bitrate: '128k',
+    guard_ms:   15,
+    safety_ms:  80,
+  };
+
+  const res = await fetch(`/api/session/${encodeURIComponent(sid())}/export/preview-audio`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || 'Build preview audio gagal');
+
+  let j = {};
+  try { j = JSON.parse(text); } catch {}
+
+  if (!j?.file) throw new Error('Preview tidak mengembalikan file.');
+
+  // muat tempo_map
+  let tempoMap = {};
+  if (j.tempo_map) {
+    try {
+      const tmRes = await fetch(j.tempo_map, { cache: 'no-store' });
+      if (tmRes.ok) tempoMap = await tmRes.json();
+    } catch {}
+  }
+
+  // SIMPAN ke state global (string, bukan object!)
+  window._exPreview.url = j.file;
+  window._exPreview.tempoMap = tempoMap;
+
+  // kompat untuk kode lama yang baca _exTempoMap
+  window._exTempoMap = tempoMap;
+
+  return j.file; // kembalikan URL string agar Play All bisa langsung fetch
+};
+
+
+
+// Putar satu segmen sesuai tempo export (pakai file row_<idx>.m4a dari backend)
+const playSegment = async (rowIdx) => {
+  if (typeof sid !== 'function' || !sid()) { this?.showNotification?.('Load Session dulu', 'error'); return; }
+
+  // pastikan tempo map tersedia
+  const hasInfo =
+    (window._exPreview?.tempoMap && window._exPreview.tempoMap[String(rowIdx)]) ||
+    (window._exTempoMap && window._exTempoMap[String(rowIdx)]);
+
+  if (!hasInfo) {
+    try { await exBuildPreviewAudio(); } 
+    catch (e) { this?.showNotification?.(String(e.message || e), 'error'); return; }
+  }
+
+  const info =
+    (window._exPreview?.tempoMap && window._exPreview.tempoMap[String(rowIdx)]) ||
+    (window._exTempoMap && window._exTempoMap[String(rowIdx)]);
+
+  if (!info?.url) { this?.showNotification?.('URL segmen tidak ditemukan.', 'error'); return; }
+
+  // AudioContext on-demand
+  if (!_waCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    _waCtx = new AC({ sampleRate: 48000 });
+    _waGain = _waCtx.createGain();
+    _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
+    _waGain.connect(_waCtx.destination);
+  } else if (_waCtx.state === 'suspended') {
+    try { await _waCtx.resume(); } catch {}
+  }
+
+  // fetch & play buffer segmen (rate=1.0, pitch normal)
+  try {
+    const r = await fetch(info.url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const ab = await r.arrayBuffer();
+    const buf = await _waCtx.decodeAudioData(ab);
+
+    // stop yang lama
+    try { _waSources.forEach(s => { try { s.stop(0); } catch {} }); } catch {}
+    _waSources = [];
+
+    const src = _waCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(_waGain);
+    src.start(_waCtx.currentTime);
+    _waSources.push(src);
+
+    // optional: sync video ke awal slot segmen (jika kamu punya cara baca eff_start_ms)
+    // const v = $('ex-video'); if (v) { v.currentTime = (info.eff_start_ms || 0) / 1000; try { await v.play(); } catch {} }
+	const v = $('ex-video');
+	if (v && info.eff_start_ms != null) { v.currentTime = info.eff_start_ms / 1000; try { await v.play(); } catch {} }
+	
+    setTimeout(() => stopPlayAll(), Math.max(0, buf.duration * 1000) + 100);
+  } catch (e) {
+    this?.showNotification?.('Gagal memutar segmen.', 'error');
+  }
+};
+
 
   // ================== PLAY ROW: VIDEO BERGERAK + TTS-ONLY ==================
   let _stopTTS = null;    // hentikan TTS segmen aktif
@@ -4714,17 +4831,25 @@ async loadExportTab() {
   let _waSources = [];             // semua source yg dijadwalkan
   let _waCleanupVideo = null;      // fungsi restore video (mute/volume)
 
-  const _computeTempo = (slotMs, durMs) => {
-    const base = Number($('ex-base-tempo')?.value || 1.0);
-    const maxA = Number($('ex-max-atempo')?.value || 2.0);
-    const minA = Number($('ex-min-atempo')?.value || 1.0);
-    if (!slotMs || !durMs) return 1.0;
-    let tempo = (durMs / slotMs) * base;
-    if (tempo > 1.0) tempo = Math.min(tempo, maxA);
-    else             tempo = Math.max(tempo, minA);
-    // batas aman HTML5 audio
-    return Math.max(0.5, Math.min(4.0, tempo));
-  };
+	// === REPLACE: fungsi hitung tempo adaptif ===
+	const _computeTempo = (slotMs, durMs) => {
+	  const base   = Number($('ex-base-tempo')?.value || 1.4);  // default 1.2
+	  const maxA   = Number($('ex-max-atempo')?.value || 2.8);  // plafon 2.5
+	  const safety = 80; // ms, jangan mepet akhir slot biar gak “nge-cut” kasar
+
+	  const s = Math.max(1, Number(slotMs || 0) - safety);
+	  const d = Math.max(0, Number(durMs || 0));
+	  if (!s || !d) return base;
+
+	  // kalau longgar → jangan < base (tidak diperlambat); kalau sempit → percepat secukupnya
+	  const needed = d / s;
+	  let tempo = Math.max(base, needed);
+	  tempo = Math.min(tempo, maxA);
+
+	  return Number(tempo.toFixed(3));
+	};
+
+
 
   const _fetchDecode = async (url, ctx) => {
     const res = await fetch(url);
@@ -4787,86 +4912,93 @@ async loadExportTab() {
     $('ex-prep-hint')?.classList.add('hidden');
   };
 
-  const playAll = async () => {
-    if (!sid()) return this.showNotification('Load Session dulu', 'error');
+// === REPLACE: Play All pakai preview audio (pitch-correct, rate=1.0) ===
+// === Play All: pakai 1 file preview_mix.m4a (rate=1.0, tanpa chipmunk) ===
+const playAll = async () => {
+  if (typeof sid !== 'function' || !sid()) {
+    this?.showNotification?.('Load Session dulu', 'error');
+    return;
+  }
 
-    $('ex-play-all')?.setAttribute('disabled', 'true');
-    $('ex-prep-hint')?.classList.remove('hidden');
+  $('ex-play-all')?.setAttribute('disabled', 'true');
+  $('ex-prep-hint')?.classList.remove('hidden');
 
-    // AudioContext on demand (harus di gesture user)
-    if (!_waCtx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      _waCtx = new AC();
-      _waGain = _waCtx.createGain();
-      _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
-      _waGain.connect(_waCtx.destination);
-      // volume slider live update saat play all
-      $('ex-tts-vol')?.addEventListener('input', () => {
-        if (_waGain) _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
-      });
-    } else if (_waCtx.state === 'suspended') {
-      await _waCtx.resume().catch(()=>{});
-    }
+  // AudioContext on-demand
+  if (!_waCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    _waCtx = new AC({ sampleRate: 48000 });
+    _waGain = _waCtx.createGain();
+    _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
+    _waGain.connect(_waCtx.destination);
+    $('ex-tts-vol')?.addEventListener('input', () => {
+      if (_waGain) _waGain.gain.value = Math.max(0, Math.min(1, Number($('ex-tts-vol')?.value || 1.0)));
+    });
+  } else if (_waCtx.state === 'suspended') {
+    try { await _waCtx.resume(); } catch {}
+  }
 
-    // ambil map terbaru
-    await exLoadMap();
-
-    // bangun schedule + decode semua dulu
-    let sch = [];
-    try {
-      sch = await _buildPlayAllSchedule(_waCtx);
-    } catch (e) {
-      $('ex-play-all')?.removeAttribute('disabled');
-      $('ex-prep-hint')?.classList.add('hidden');
-      return this.showNotification('Gagal menyiapkan Play All.', 'error');
-    }
-    if (!sch.length) {
-      $('ex-play-all')?.removeAttribute('disabled');
-      $('ex-prep-hint')?.classList.add('hidden');
-      return this.showNotification('Tidak ada segmen TTS untuk diputar.', 'warning');
-    }
-
-    // siapkan video
-    const v = $('ex-video');
-    const prevMuted = v.muted;
-    const prevVol   = v.volume;
-    v.muted = true; v.volume = 0;
-    _waCleanupVideo = () => { v.muted = prevMuted; v.volume = prevVol; };
-
-    // start video pada segmen pertama
-    const baseMs = sch[0].effStart || 0;
-    v.currentTime = baseMs / 1000;
-    try { await v.play(); } catch {}
-
-    // waktu dasar audio
-    const t0 = _waCtx.currentTime;
-
-    // jadwalkan semua source persis
-    _waSources = [];
-    for (const seg of sch) {
-      const startDelay = Math.max(0, (seg.effStart - baseMs) / 1000); // detik
-      const src = _waCtx.createBufferSource();
-      src.buffer = seg.buffer;
-      src.playbackRate.value = seg.tempo;
-      src.connect(_waGain);
-
-      // start & stop sesuai slot (seperti atrim setelah atempo)
-      const startAt = t0 + startDelay;
-      const stopAt  = startAt + Math.max(0, seg.slotMs) / 1000;
-      try {
-        src.start(startAt);
-        if (seg.slotMs > 0) src.stop(stopAt);
-      } catch {}
-
-      _waSources.push(src);
-    }
-
-    // auto berhenti setelah segmen terakhir selesai
-    const lastStopIn = ((sch[sch.length-1].effStart - baseMs) + (sch[sch.length-1].slotMs)) / 1000;
-    setTimeout(() => stopPlayAll(), Math.max(0, lastStopIn * 1000) + 200);
-
+  // bangun preview di backend (TTS sudah di-atempo; pitch normal)
+  let url = '';
+  try {
+    url = await exBuildPreviewAudio();
+  } catch (e) {
     $('ex-prep-hint')?.classList.add('hidden');
-  };
+    $('ex-play-all')?.removeAttribute('disabled');
+    this?.showNotification?.(String(e.message || e), 'error');
+    return;
+  }
+
+  // unduh & decode preview_mix.m4a
+  let buf = null;
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const ab = await r.arrayBuffer();
+    buf = await _waCtx.decodeAudioData(ab);
+  } catch (e) {
+    $('ex-prep-hint')?.classList.add('hidden');
+    $('ex-play-all')?.removeAttribute('disabled');
+    this?.showNotification?.('Decode preview audio gagal (file mungkin kosong).', 'error');
+    return;
+  }
+
+  // siapkan video: mute & sinkron dari 0
+  const v = $('ex-video');
+  const prevMuted = v?.muted, prevVol = v?.volume;
+  if (v) {
+    v.muted = true; v.volume = 0; v.currentTime = 0;
+    _waCleanupVideo = () => { v.muted = prevMuted; v.volume = prevVol; };
+    try { await v.play(); } catch {}
+  }
+
+  // play 1 sumber audio (sudah berisi semua segmen+adelay)
+  try {
+    // stop sumber lama bila ada
+    try { _waSources.forEach(s => { try { s.stop(0); } catch {} }); } catch {}
+    _waSources = [];
+
+    const src = _waCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(_waGain);
+    src.start(_waCtx.currentTime);
+
+    _waSources.push(src);
+
+    const durMs = Math.max(0, (buf.duration || 0) * 1000);
+    setTimeout(() => stopPlayAll(), durMs + 200);
+  } catch (e) {
+    this?.showNotification?.('Gagal memutar preview audio.', 'error');
+    stopPlayAll();
+    return;
+  } finally {
+    $('ex-prep-hint')?.classList.add('hidden');
+    $('ex-play-all')?.removeAttribute('disabled');
+  }
+};
+
+
+
+
   // =======================================================================
 
   const nudgeRow = async (idx, delta) => {
@@ -5034,81 +5166,163 @@ async loadExportTab() {
     }).join('');
   };
 
-  // ---------- EVENTS ----------
-  $('ex-load-session').onclick = () => loadSession($('ex-session-list').value);
 
-  $('ex-imp-project').onclick = async () => {
-    if (!sid()) return this.showNotification('Load Session dulu', 'error');
-    const prj = $('ex-project-dir').value.trim();
-    if (!prj) return this.showNotification('Isi Project dir dulu', 'warning');
-    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/import`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ project_dir: prj })
-    });
-    const t = await r.text();
-    if (!r.ok) return this.showNotification(`Import gagal: ${t}`, 'error');
-    this.showNotification('Import OK', 'success');
-    await exLoadMap();
-    await reloadRows();
-  };
+	// ---------- EVENTS ----------
+	//$('ex-load-session').onclick = () => loadSession($('ex-session-list').value);
+$('ex-load-session').onclick = async () => {
+  await loadSession($('ex-session-list').value);
+  const bgm = $('ex-bgm');
+  if (bgm && !bgm.value.trim()) {
+    bgm.value = 'instrument.wav';
+    bgm.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+};
 
-  $('ex-detect').onclick = async () => {
-    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/detect_offset`, { method: 'POST' });
-    const j = await r.json().catch(()=>({}));
-    if (!r.ok) return this.showNotification(j?.detail || 'Gagal mendeteksi offset', 'error');
-    $('ex-offset').value = j.suggested_offset_ms ?? 0;
-    updateEffective();
-    this.showNotification(`Suggested offset: ${j.suggested_offset_ms} ms (pairs: ${j.pairs_used})`, 'success');
-  };
 
-  $('ex-remap').onclick = async () => {
-    if (!$('ex-tolerance').value) $('ex-tolerance').value = 200; // default 200
-    const body = {
-      global_offset_ms: Number($('ex-offset').value || 0),
-      tolerance_ms: Number($('ex-tolerance').value || 200),
-    };
-    const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/remap`, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
-    });
-    const j = await r.json().catch(()=>({}));
-    if (!r.ok) return this.showNotification(j?.detail || JSON.stringify(j), 'error');
-    this.showNotification(`Remap: matched ${j.matched}/${j.total_rows}`, 'success');
-    await exLoadMap();
-    await reloadRows();
-  };
+	$('ex-imp-project').onclick = async () => {
+	  if (!sid()) return this.showNotification('Load Session dulu', 'error');
+	  const prj = $('ex-project-dir').value.trim();
+	  if (!prj) return this.showNotification('Isi Project dir dulu', 'warning');
+	  const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/import`, {
+		method:'POST', headers:{'Content-Type':'application/json'},
+		body: JSON.stringify({ project_dir: prj })
+	  });
+	  const t = await r.text();
+	  if (!r.ok) return this.showNotification(`Import gagal: ${t}`, 'error');
+	  this.showNotification('Import OK', 'success');
+	  await exLoadMap();
+	  await reloadRows();
+	};
 
-  $('ex-global-minus').onclick = () => nudgeAll(-50);
-  $('ex-global-plus').onclick  = () => nudgeAll(+50);
+	$('ex-detect').onclick = async () => {
+	  const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/detect_offset`, { method: 'POST' });
+	  const j = await r.json().catch(()=>({}));
+	  if (!r.ok) return this.showNotification(j?.detail || 'Gagal mendeteksi offset', 'error');
+	  $('ex-offset').value = j.suggested_offset_ms ?? 0;
+	  updateEffective();
+	  this.showNotification(`Suggested offset: ${j.suggested_offset_ms} ms (pairs: ${j.pairs_used})`, 'success');
+	};
 
-  $('ex-reset-time').onclick = () => resetTime();
+	$('ex-remap').onclick = async () => {
+	  if (!$('ex-tolerance').value) $('ex-tolerance').value = 200;
+	  const body = {
+		global_offset_ms: Number($('ex-offset').value || 0),
+		tolerance_ms: Number($('ex-tolerance').value || 200),
+	  };
+	  const r = await fetch(`/api/session/${encodeURIComponent(sid())}/capcut/remap`, {
+		method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+	  });
+	  const j = await r.json().catch(()=>({}));
+	  if (!r.ok) return this.showNotification(j?.detail || JSON.stringify(j), 'error');
+	  this.showNotification(`Remap: matched ${j.matched}/${j.total_rows}`, 'success');
+	  await exLoadMap();
+	  await reloadRows();
+	};
 
-  // offset input → refresh effective label
-  $('ex-offset').addEventListener('input', updateEffective);
+	$('ex-global-minus').onclick = () => nudgeAll(-50);
+	$('ex-global-plus').onclick  = () => nudgeAll(+50);
 
-  // Delegasi klik untuk container daftar (Play & Nudge per-baris)
-  document.getElementById('ex-rows').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
+	$('ex-reset-time').onclick = () => resetTime();
 
-    // Play = video play (mute 0) + TTS (toggle)
-    if (btn.dataset.play) {
-      await playRow(btn.dataset.play);
-      return;
-    }
+	$('ex-offset').addEventListener('input', updateEffective);
 
-    // Nudge per-baris
-    if (btn.dataset.nudgeDelta) {
-      const host  = btn.closest('[data-nudge]');
-      const idx   = Number(host?.dataset.nudge || 0);
-      const delta = Number(btn.dataset.nudgeDelta);
-      await nudgeRow(idx, delta);
-      return;
-    }
-  });
+	document.getElementById('ex-rows').addEventListener('click', async (e) => {
+	  const btn = e.target.closest('button');
+	  if (!btn) return;
+
+	  if (btn.dataset.play) {
+		await playSegment(btn.dataset.play);
+		return;
+	  }
+
+	  if (btn.dataset.nudgeDelta) {
+		const host = btn.closest('[data-nudge]');
+		const idx = Number(host?.dataset.nudge || 0);
+		const delta = Number(btn.dataset.nudgeDelta);
+		await nudgeRow(idx, delta);
+		return;
+	  }
+	});
 
   // Play All / Stop
   $('ex-play-all').onclick = () => playAll();
   $('ex-stop-all').onclick  = () => stopPlayAll();
+// Sinkronkan center-cut vs BGM (EXPORT)
+
+// === UI: tombol copy instrument.wav untuk BGM ===
+// ===== EXPORT helpers (paste this BEFORE // ---------- EXPORT ----------) =====
+(() => {
+  const bgmInput  = $('ex-bgm');
+  const centerChk = $('ex-center');
+  if (!bgmInput || !centerChk) return;
+
+  function syncCenterCutState() {
+    const hasBgm = (bgmInput.value || '').trim() !== '';
+
+    // enable/disable
+    centerChk.disabled = hasBgm;
+
+    if (hasBgm) {
+      // saat ada BGM → pastikan center-cut OFF
+      centerChk.checked = false;
+      centerChk.title = 'Center-cut hanya dipakai jika BGM kosong';
+    } else {
+      // saat BGM dikosongkan → otomatis ON
+      centerChk.checked = true;
+      centerChk.title = '';
+    }
+
+    // update badge mode (kalau kamu pakai showMode)
+    if (typeof showMode === 'function') showMode();
+  }
+  bgmInput.addEventListener('input', syncCenterCutState);
+  centerChk.addEventListener('change', syncCenterCutState);
+
+  // 2) Tombol "Copy instrument.wav → BGM" (dibuat sekali)
+  if (!document.getElementById('ex-copy-instrument')) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'ex-copy-instrument';
+    btn.textContent = 'Copy instrument.wav → BGM';
+    btn.className = 'ml-2 px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600';
+
+    btn.onclick = async () => {
+      const val = 'instrument.wav';          // relatif ke workspace
+      bgmInput.value = val;
+      bgmInput.dispatchEvent(new Event('input', { bubbles: true }));
+      try {
+        await navigator.clipboard.writeText(val);
+        this.showNotification?.('instrument.wav disalin & diisi ke BGM', 'success');
+      } catch {
+        this.showNotification?.('instrument.wav diisi ke BGM (clipboard mungkin diblokir)', 'info');
+      }
+      showMode(); // update badge
+    };
+
+    (centerChk.parentElement || centerChk).insertAdjacentElement('afterend', btn);
+  }
+
+  // 3) Badge "Mode status"
+  function showMode() {
+    const hasBgm    = (bgmInput.value || '').trim() !== '';
+    const useCenter = centerChk.checked && !hasBgm;
+    let el = document.getElementById('ex-mode');
+    if (!el) {
+      el = document.createElement('span');
+      el.id = 'ex-mode';
+      el.className = 'ml-2 text-xs px-2 py-1 rounded bg-gray-700/40';
+      (centerChk.parentElement || centerChk).appendChild(el);
+    }
+    el.textContent = useCenter ? 'Mode: Center-cut' : (hasBgm ? 'Mode: BGM' : 'Mode: Default');
+  }
+  bgmInput.addEventListener('input', showMode);
+  centerChk.addEventListener('change', showMode);
+
+  // inisialisasi awal
+  syncCenterCutState();
+  showMode();
+})();
+
 
   // ---------- EXPORT ----------
   $('ex-build').onclick = async () => {
@@ -5116,12 +5330,13 @@ async loadExportTab() {
     const body = {
       center_cut: $('ex-center').checked,
       bgm_path: $('ex-bgm').value.trim(),
+	  auto_bgm: true,           // ⟵ tambahkan ini
       tts_vol: Number($('ex-tts-vol').value || 1),
-      bg_vol: Number($('ex-bg-vol').value || 1),
+      bg_vol: Number($('ex-bg-vol').value || 0.8),
       audio_bitrate: $('ex-audio-br').value || '128k',
-      max_atempo: Number($('ex-max-atempo').value || 2.0),
-      min_atempo: Number($('ex-min-atempo')?.value || 1.2),
-      base_tempo: Number($('ex-base-tempo')?.value || 1.3),
+      max_atempo: Number($('ex-max-atempo').value || 2.8),
+      min_atempo: Number($('ex-min-atempo')?.value || 1.4),
+      base_tempo: Number($('ex-base-tempo')?.value || 1.4),
       out_name: "export.mp4",
     };
     const r = await fetch(`/api/session/${encodeURIComponent(sid())}/export/build`, {

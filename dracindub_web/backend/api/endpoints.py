@@ -2359,7 +2359,7 @@ def export_build(
                 data = json.loads(man.read_text(encoding="utf-8"))
                 for it in data.get("items", []):
                     idx = it.get("row_index", it.get("index", None))
-                    if idx is None: 
+                    if idx is None:
                         continue
                     s = it.get("start_ms")
                     e = it.get("end_ms")
@@ -2374,7 +2374,7 @@ def export_build(
 
         # 2) editing_cache.json
         for cand in [ws / "editing_cache.json", ws / "capcut" / "editing_cache.json"]:
-            if not cand.exists(): 
+            if not cand.exists():
                 continue
             try:
                 obj = json.loads(cand.read_text(encoding="utf-8"))
@@ -2396,13 +2396,13 @@ def export_build(
         # 3) SRT fallback
         for name in ["source_video.srt", "translated_latest.srt", "translated.srt"]:
             f = ws / name
-            if not f.exists(): 
+            if not f.exists():
                 continue
             content = f.read_text(encoding="utf-8", errors="ignore")
             blocks = re.split(r"\r?\n\r?\n+", content.strip())
             for b in blocks:
                 lines = [ln for ln in b.splitlines() if ln.strip()]
-                if len(lines) < 2: 
+                if len(lines) < 2:
                     continue
                 try:
                     idx = int(lines[0].strip())
@@ -2410,7 +2410,7 @@ def export_build(
                     continue
                 tl = lines[1]
                 m = re.match(r".*?(\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}).*?(\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3})", tl)
-                if not m: 
+                if not m:
                     continue
                 s = _parse_srt_time_to_ms(m.group(1))
                 e = _parse_srt_time_to_ms(m.group(2))
@@ -2438,13 +2438,13 @@ def export_build(
         center_cut = bool(raw_center)
 
     tts_vol    = float(body.get("tts_vol", 1.0))
-    bg_vol     = float(body.get("bg_vol", 1))
+    bg_vol     = float(body.get("bg_vol", 0.8))
     audio_br   = str(body.get("audio_bitrate", "128k"))
     out_name   = (body.get("out_name") or "export.mp4").strip() or "export.mp4"
     bgm_path   = (body.get("bgm_path") or "").strip()
-    max_atempo = float(body.get("max_atempo", 2.0))
-    min_atempo = float(body.get("min_atempo", 1.2))
-    base_tempo = float(body.get("base_tempo", 1.3))
+    max_atempo = float(body.get("max_atempo", 2.8))
+    min_atempo = float(body.get("min_atempo", 1.4))   # dibaca untuk kompatibilitas (tidak dipakai)
+    base_tempo = float(body.get("base_tempo", 1.4))   # default saat longgar (>=1.0)
 
     # shift optional (tetap dipertahankan jika kamu pakai di tempat lain)
     shift = {}
@@ -2455,15 +2455,9 @@ def export_build(
         except Exception:
             shift = {}
 
-    # === NEW: baca CAPCUT MAP (hasil remap & nudge) ===
-    #    Struktur:
-    #    {
-    #      "global_offset_ms": int,
-    #      "global_nudge_ms": int,
-    #      "row_nudges": { "1": int, "2": int, ... }
-    #    }
+    # === baca CAPCUT MAP (hasil remap & nudge) ===
     mapf_main = ws / "capcut_map.json"
-    mapf_alt  = ws / "capcut" / "capcut_map.json"  # fallback kalau disimpan di folder capcut
+    mapf_alt  = ws / "capcut" / "capcut_map.json"  # fallback
     capcut_map = {"global_offset_ms": 0, "global_nudge_ms": 0, "row_nudges": {}}
     for _cand in [mapf_main, mapf_alt]:
         if _cand.exists():
@@ -2499,95 +2493,172 @@ def export_build(
         sec = float(j.get("format", {}).get("duration", 0.0) or 0.0)
         return int(round(sec * 1000))
 
+    # ------------------ ANTI-OVERLAP PRECOMPUTE ------------------
+    guard_ms = int(body.get("guard_ms", 15))  # buffer kecil antar segmen
+    meta = []  # {row_idx, eff_start, slot_ms}
+    for f in tts_files:
+        try:
+            row_idx = int(_re.sub(r"\D", "", f.stem) or "0") or 0
+        except Exception:
+            continue
+        s_ms, e_ms = times.get(row_idx, (0, 0))
+        if e_ms > s_ms:
+            per_row = int(row_nudges.get(row_idx, 0) or 0)
+            eff_start = max(0, int(s_ms) + global_offset + global_nudge + per_row + int(shift.get(str(row_idx), 0) or 0))
+            slot_ms = max(1, int(e_ms) - int(s_ms))
+            meta.append({"row_idx": row_idx, "eff_start": eff_start, "slot_ms": slot_ms})
+
+    meta.sort(key=lambda x: x["eff_start"])
+    eff_start_map = {}
+    eff_slot_map  = {}
+    for i, cur in enumerate(meta):
+        next_start = meta[i+1]["eff_start"] if i+1 < len(meta) else None
+        hard_end = cur["eff_start"] + cur["slot_ms"]
+        if next_start is not None:
+            hard_end = min(hard_end, max(0, next_start - guard_ms))
+        eff_start_map[cur["row_idx"]] = cur["eff_start"]
+        eff_slot_map[cur["row_idx"]]  = max(1, hard_end - cur["eff_start"])
+    # -------------------------------------------------------------
+
     # Inputs & filter graph
     inputs = [str(src_video)]
     filter_parts = []
-    amixes = []
+    amixes = []        # kumpulan label untuk TTS (+orig kalau tanpa BGM)
+    bgm_label = None   # label untuk BGM jika diisi
 
-    # === ORIGINAL BED ===
+    # === ORIGINAL BED / BGM ===
+    vid_ms = _ffprobe_duration_ms(src_video)
+
     if bgm_path:
-        # Catatan: Jika ingin memasukkan BGM eksternal,
-        # kamu perlu menambahkannya sebagai input dan mem-mix di sini.
-        # Disengaja dibiarkan kosong agar tidak mengubah indeks input TTS.
-        pass
+        # BGM eksternal → JANGAN dimasukkan ke 'amixes'; simpan label saja
+        p_bgm = Path(bgm_path)
+        if not p_bgm.is_absolute():
+            p_bgm = (ws / p_bgm).resolve()
+        if not p_bgm.exists():
+            raise HTTPException(400, f"BGM tidak ditemukan: {p_bgm}")
+
+        inputs.append(str(p_bgm))
+        bgm_in = len(inputs) - 1
+
+        # BGM eksternal → perlakukan sama seperti “orig bed” biasa (tanpa center_cut)
+        filter_parts.append(
+            f"[{bgm_in}:a]"
+            "aformat=channel_layouts=stereo:sample_rates=48000,"
+            "alimiter=limit=0.95,"
+            f"volume={bg_vol:.2f}[orig]"
+        )
+        amixes.append("[orig]")
+
     else:
+        # TANPA BGM → jalur lama dipertahankan persis
         if center_cut:
-            # Ambil komponen SIDE (L−R), skalakan ke bg_vol
             filter_parts += [
                 "[0:a]"
                 "aformat=channel_layouts=stereo:sample_rates=48000,"
                 "pan=stereo|c0=FL-FR|c1=FR-FL,"
                 "alimiter=limit=0.95,"
-                f"volume={bg_vol*1:.2f}[orig]"
+                f"volume={bg_vol:.2f}[orig]"
             ]
             amixes.append("[orig]")
         else:
-            # Tanpa center_cut → kecilkan saja
             filter_parts.append(
                 "[0:a]aformat=channel_layouts=stereo:sample_rates=48000,"
                 "alimiter=limit=0.95,volume=0.35[orig]"
             )
             amixes.append("[orig]")
 
-    # === TTS (100%) ===
-    # Setiap TTS dijadikan stereo 48k, (opsional) atempo → TRIM → ASETPTS → DELAY → label.
-    for i, f in enumerate(tts_files, start=1):           # input ffmpeg: 0=video, 1..N = TTS
-        inputs.append(str(f))                            # pastikan file jadi input ffmpeg
 
+    # === TTS (100%) ===
+    safety_ms = 80  # buffer kecil supaya tidak mepet end
+
+    for i, f in enumerate(tts_files, start=1):
+        inputs.append(str(f))
+        tts_in = len(inputs) - 1                   # <-- PENTING: indeks input FFmpeg yang sebenarnya
         # index baris dari nama file 00001.wav -> 1
         try:
             row_idx = int(_re.sub(r"\D", "", f.stem) or str(i))
         except Exception:
             row_idx = i
 
-        # waktu mulai/akhir (ms), plus shift kalau ada
         s_ms, e_ms = times.get(row_idx, (0, 0))
-        s_ms = int(s_ms or 0)
-        e_ms = int(e_ms or 0)
+        s_ms = int(s_ms or 0); e_ms = int(e_ms or 0)
 
-        # === APPLY OFFSET/NUDGE DARI capcut_map.json ===
         per_row = int(row_nudges.get(row_idx, 0) or 0)
-        eff_start_ms = max(0, s_ms + global_offset + global_nudge + per_row + int(shift.get(str(row_idx), 0) or 0))
+        eff_start_ms = eff_start_map.get(
+            row_idx,
+            max(0, s_ms + global_offset + global_nudge + per_row + int(shift.get(str(row_idx), 0) or 0))
+        )
 
-        chain = f"[{i}:a]aformat=channel_layouts=stereo:sample_rates=48000,"
+        chain = f"[{tts_in}:a]aformat=channel_layouts=stereo:sample_rates=48000,"  # <-- pakai tts_in di sini
 
         if e_ms > s_ms:
-            slot_ms = max(1, e_ms - s_ms)
-            dur_ms  = _ffprobe_duration_ms(f)
+            slot_ms_orig = max(1, e_ms - s_ms)
+            slot_ms = int(eff_slot_map.get(row_idx, slot_ms_orig))
+            dur_ms  = _ffprobe_duration_ms(f) or 0
 
-            # tempo ideal per segmen, lalu offset global tempo (base_tempo)
-            raw   = (dur_ms / float(slot_ms)) if dur_ms and slot_ms else 1.0
-            tempo = raw * base_tempo
+            slot_eff = max(1, slot_ms - safety_ms)
+            needed   = (dur_ms / float(slot_eff)) if dur_ms > 0 else float(base_tempo or 1.2)
+            tempo    = max(float(base_tempo or 1.4), min(float(max_atempo or 2.8), needed))
+            tempo_ops = _atempo_chain(tempo)
+            if tempo_ops: chain += tempo_ops + ","
 
-            # clamp menurut arah
-            if tempo > 1.0:
-                tempo = min(tempo, max_atempo)      # percepat
-            else:
-                tempo = max(tempo, min_atempo)      # perlambat
-
-            tempo_ops = _atempo_chain(tempo)  # pecah jadi step 0.5..2.0
-
-            if tempo_ops:
-                chain += tempo_ops + ","
-
-            # URUTAN: volume -> ATRIM -> ASETPTS -> ADELAY(efektif)
             chain += (
-                f"volume={tts_vol:.2f},"
-                f"atrim=0:{slot_ms/1000.0:.3f},asetpts=PTS-STARTPTS,"
-                f"adelay={eff_start_ms}|{eff_start_ms}[a{i}]"
+                f"volume={tts_vol:.3f},"
+                f"apad,atrim=0:{slot_ms/1000:.6f},"
+                "asetpts=PTS-STARTPTS,"
+                f"adelay=delays={eff_start_ms}|{eff_start_ms}:all=1,"
+                "aresample=48000:async=1:first_pts=0"
+                f"[a{i}]"
             )
         else:
-            # tanpa timing → langsung normalisasi & label
-            chain += f"volume={tts_vol:.2f}[a{i}]"
+            chain += f"volume={tts_vol},adelay={eff_start_ms}|{eff_start_ms}[a{i}]"
 
         filter_parts.append(chain)
         amixes.append(f"[a{i}]")
 
+
     # === AMIX akhir
     if not amixes:
         raise HTTPException(400, "Tidak ada sumber audio untuk di-mix.")
-    parts, last = _hier_amix(amixes, normalize=0, group=32, final_label="[aout]")
-    filter_parts += parts
+
+    if bgm_label is None:
+        # ---- TANPA BGM: biarkan jalur lama PERSIS seperti sebelumnya ----
+        parts, last_mix = _hier_amix(amixes, normalize=0, group=32, final_label="[amix]")
+        filter_parts += parts
+        filter_parts.append(
+            f"{last_mix}"
+            "alimiter=limit=0.95,"
+            "aresample=48000:async=1:first_pts=0,"
+            "aformat=channel_layouts=stereo:sample_rates=48000,"
+            "asetpts=PTS-STARTPTS[aout]"
+        )
+    else:
+        # ---- DENGAN BGM: TTS disatukan dulu → baru mix 2 input (TTS + BGM) ----
+        parts_tts, last_tts = _hier_amix(amixes, normalize=0, group=24, final_label="[tts_bus]")
+        filter_parts += parts_tts
+
+        # Rapikan bus TTS (global PTS dibuat mulus)
+        filter_parts.append(
+            "[tts_bus]"
+            "alimiter=limit=0.95,"
+            "aresample=48000:async=1:first_pts=0,"
+            "aformat=channel_layouts=stereo:sample_rates=48000,"
+            "asetpts=PTS-STARTPTS[tts_bus2]"
+        )
+
+        # Mix 2 input TANPA normalize & TANPA smoothing → level BGM stabil, TTS tidak kepotong
+        filter_parts.append(
+            f"[tts_bus2]{bgm_label}amix=inputs=2:normalize=0:dropout_transition=0:duration=longest[amix2]"
+        )
+
+        # Finishing ke output
+        filter_parts.append(
+            "[amix2]"
+            "alimiter=limit=0.96,"
+            "aresample=48000:async=1:first_pts=0,"
+            "aformat=channel_layouts=stereo:sample_rates=48000,"
+            "asetpts=PTS-STARTPTS[aout]"
+        )
 
     # Jalankan ffmpeg
     out_path = (ws / (out_name or "export.mp4")).resolve()
@@ -2604,6 +2675,9 @@ def export_build(
         "-map", "[aout]",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", audio_br,
+        "-movflags", "+faststart",
+        "-max_interleave_delta", "0",
+        "-shortest",
         str(out_path),
     ]
 
@@ -2617,6 +2691,29 @@ def export_build(
     rel = str(out_path.resolve().relative_to(ws.resolve())).replace("\\", "/")
     return {"ok": True, "output": f"/api/session/{session_id}/wsfile?rel={quote(rel)}"}
 
+
+# === Helper: tempo adaptif & ffmpeg chain ===
+def _compute_tempo(tts_ms: int, slot_ms: int, base_tempo: float, max_atempo: float, safety_ms: int = 80) -> float:
+    """
+    Tempo adaptif:
+      slot_eff = max(1, slot_ms - safety_ms)
+      needed   = tts_ms / slot_eff
+      tempo    = clamp(max(base_tempo, needed), base_tempo, max_atempo)
+    Catatan:
+      - Set base_tempo=1.2 kalau mau ada guard minimal (tidak terlalu lambat).
+      - Set base_tempo=1.0 kalau benar2 ingin 'jika waktu cukup, jangan diapa2in'.
+    """
+    slot_eff = max(1, int(slot_ms) - int(safety_ms))
+    needed   = (float(tts_ms) / float(slot_eff)) if tts_ms > 0 else base_tempo
+    tempo    = max(base_tempo, needed)
+    if tempo < base_tempo:
+        tempo = base_tempo
+    if tempo > max_atempo:
+        tempo = max_atempo
+    # hindari noise artefak di 1.00 ± very small
+    if 0.98 <= tempo <= 1.02:
+        tempo = 1.0
+    return float(tempo)
     
 def _atempo_chain(val: float) -> str:
     """Bentuk rangkaian atempo agar tetap dalam batas 0.5..2.0 per langkah."""
@@ -2807,3 +2904,271 @@ def _norm_seg_list(seg_list, keep=None):
             # skip baris yang aneh
             pass
     return out
+    
+@router.post("/api/session/{session_id}/export/preview-audio")
+def export_preview_audio(session_id: str, body: dict = Body(...), pm = Depends(get_processing_manager)):
+    """
+    Bangun audio preview (tanpa chipmunk):
+      - TTS di-atempo adaptif (>= base_tempo, <= max_atempo)
+      - Ditrim sesuai slot (durasi minimal 200 ms agar tak 0.001)
+      - Digeser pakai eff_start_ms
+      - Ditambah 'silence bed' supaya file tak pernah kosong
+      - Keluarkan juga per-segmen row_<idx>.m4a untuk Play Segment
+    """
+    import json, subprocess, re as _re
+    from pathlib import Path
+    from urllib.parse import quote
+
+    # -------- helper lokal --------
+    def _ws_local(pm, sid: str) -> Path:
+        try:
+            return pm.workspaces_dir / sid
+        except Exception:
+            return Path("workspaces") / sid
+
+    def _parse_srt_time_to_ms(s: str) -> int:
+        m = _re.match(r"(\d{1,2}):(\d{2}):(\d{2})[,\.](\d{1,3})", str(s).strip())
+        if not m: return 0
+        h, m_, s_, ms = map(int, m.groups())
+        return ((h*3600 + m_*60 + s_) * 1000) + ms
+
+    def _load_times_dict(ws: Path) -> dict:
+        # 1) capcut_map_all.json → 2) editing_cache.json → 3) SRT fallback
+        times = {}
+        man = ws / "capcut" / "capcut_map_all.json"
+        if man.exists():
+            try:
+                data = json.loads(man.read_text(encoding="utf-8"))
+                for it in data.get("items", []):
+                    idx = it.get("row_index", it.get("index", None))
+                    if idx is None: continue
+                    s = it.get("start_ms"); e = it.get("end_ms")
+                    if s is None and it.get("start"): s = _parse_srt_time_to_ms(it["start"])
+                    if e is None and it.get("end"):   e = _parse_srt_time_to_ms(it["end"])
+                    if s is not None and e is not None:
+                        times[int(idx)] = (int(s), int(e))
+            except Exception: pass
+        if times: return times
+
+        for cand in [ws/"editing_cache.json", ws/"capcut"/"editing_cache.json"]:
+            if not cand.exists(): continue
+            try:
+                obj = json.loads(cand.read_text(encoding="utf-8"))
+                arr = obj.get("rows") if isinstance(obj, dict) else obj
+                for r in (arr or []):
+                    try: idx = int(r.get("index", 0))
+                    except Exception: continue
+                    s = _parse_srt_time_to_ms(r.get("start",""))
+                    e = _parse_srt_time_to_ms(r.get("end",""))
+                    if idx and e >= s: times[idx] = (s, e)
+                if times: return times
+            except Exception: pass
+
+        for name in ["source_video.srt", "translated_latest.srt", "translated.srt"]:
+            f = ws / name
+            if not f.exists(): continue
+            content = f.read_text(encoding="utf-8", errors="ignore")
+            blocks = _re.split(r"\r?\n\r?\n+", content.strip())
+            for b in blocks:
+                lines = [ln for ln in b.splitlines() if ln.strip()]
+                if len(lines) < 2: continue
+                try: idx = int(lines[0].strip())
+                except Exception: continue
+                tl = lines[1]
+                m = _re.search(r"(\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}).*?(\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3})", tl)
+                if not m: continue
+                s = _parse_srt_time_to_ms(m.group(1)); e = _parse_srt_time_to_ms(m.group(2))
+                if e >= s: times[idx] = (s, e)
+            if times: return times
+        return times
+
+    def _ffprobe_duration_ms(path: Path) -> int:
+        try:
+            p = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                capture_output=True, text=True
+            )
+            dur = float(p.stdout.strip() or "0")
+            return int(dur * 1000)
+        except Exception:
+            return 0
+
+    # ----- input & opsi -----
+    ws = _ws_local(pm, session_id); ws.mkdir(parents=True, exist_ok=True)
+    src_video = next((p for p in [ws/"video.mp4", ws/"video.mkv", ws/"video.mov"] if p.exists()), None)
+
+    base_tempo   = float(body.get("base_tempo", 1.4))
+    max_atempo   = float(body.get("max_atempo", 2.8))
+    tts_vol      = float(body.get("tts_vol", 1.0))
+    bg_vol       = float(body.get("bg_vol", 0.8))
+    center_cut   = bool(body.get("center_cut", False))
+    include_orig = bool(body.get("include_original", False))
+    audio_br     = str(body.get("audio_bitrate", "128k"))
+    guard_ms     = int(body.get("guard_ms", 15))
+    safety_ms    = int(body.get("safety_ms", 80))
+    min_seg_ms   = 200  # <<— durasi minimum agar tak 1ms
+
+    # lokasi TTS
+    tts_dir = None
+    for d in [ws/"capcut"/"trim", ws/"capcut"/"trim"/"all", ws/"capcut"/"raw", ws/"capcut"/"raw"/"all"]:
+        if d.exists(): tts_dir = d; break
+    if not tts_dir: raise HTTPException(400, "Direktori TTS tidak ditemukan.")
+
+    tts_files = sorted([p for p in tts_dir.glob("*.wav") if p.is_file()])
+    if not tts_files: raise HTTPException(400, "Tidak ada file TTS (*.wav).")
+
+    # waktu per index
+    times = _load_times_dict(ws)
+
+    # ----- hitung eff_start_map & eff_slot_map anti-overlap -----
+    meta = []
+    for f in tts_files:
+        try: row_idx = int(_re.sub(r"\D","", f.stem) or "0")
+        except Exception: row_idx = 0
+        s, e = times.get(row_idx, (0,0))
+        slot = max(1, e - s)
+        meta.append({"row_idx": row_idx, "eff_start": s, "slot_ms": slot})
+
+    meta.sort(key=lambda x: x["eff_start"])
+    eff_start_map, eff_slot_map = {}, {}
+    for i, cur in enumerate(meta):
+        next_start = meta[i+1]["eff_start"] if i+1 < len(meta) else None
+        hard_end = cur["eff_start"] + cur["slot_ms"]
+        if next_start is not None:
+            hard_end = min(hard_end, max(0, next_start - guard_ms))
+        eff_start_map[cur["row_idx"]] = cur["eff_start"]
+        eff_slot_map[cur["row_idx"]]  = max(1, hard_end - cur["eff_start"])
+
+    # panjang timeline
+    timeline_ms = 0
+    for r in meta:
+        timeline_ms = max(timeline_ms, eff_start_map.get(r["row_idx"], 0) + eff_slot_map.get(r["row_idx"], 0))
+
+    # ----- build filter graph -----
+    inputs, filter_parts, amixes = [], [], []
+
+    # optional original bed
+    if include_orig and src_video and src_video.exists():
+        inputs.append(str(src_video))
+        if center_cut:
+            filter_parts.append(
+                "[0:a]aformat=channel_layouts=stereo:sample_rates=48000,"
+                "pan=stereo|c0=FL-FR|c1=FR-FL,alimiter=limit=0.95,"
+                f"volume={bg_vol:.2f}[orig]"
+            )
+        else:
+            filter_parts.append(
+                "[0:a]aformat=channel_layouts=stereo:sample_rates=48000,"
+                "alimiter=limit=0.95,"
+                f"volume={bg_vol:.2f}[orig]"
+            )
+        amixes.append("[orig]")
+
+    base_in = 1 if include_orig and src_video and src_video.exists() else 0
+
+    # **silence bed** supaya selalu ada output (hindari "too small")
+    sil_len = max(1000, timeline_ms + 1000)  # +1s ekor
+    filter_parts.append(
+        f"anullsrc=r=48000:cl=stereo,atrim=0:{sil_len/1000:.3f},asetpts=PTS-STARTPTS[sil]"
+    )
+    amixes.append("[sil]")
+
+    seg_dir = ws / "preview_segments"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    tempo_map = {}
+    plan = {"segments": [], "include_original": include_orig, "base_tempo": base_tempo,
+            "max_atempo": max_atempo, "guard_ms": guard_ms, "safety_ms": safety_ms, "timeline_ms": timeline_ms}
+
+    for k, f in enumerate(tts_files):
+        inputs.append(str(f))
+        in_idx = base_in + k
+        in_label  = f"[{in_idx}:a]"
+        out_label = f"[a{k+1}]"
+
+        try: row_idx = int(_re.sub(r"\D","", f.stem) or "0")
+        except Exception: row_idx = 0
+
+        s_ms, e_ms = times.get(row_idx, (0,0))
+        eff_start_ms = int(eff_start_map.get(row_idx, s_ms))
+        slot_ms      = int(eff_slot_map.get(row_idx, max(1, e_ms - s_ms)))
+        tts_ms       = _ffprobe_duration_ms(f)
+
+        # tempo adaptif
+        slot_eff = max(1, slot_ms - safety_ms)
+        needed   = (tts_ms / float(slot_eff)) if tts_ms > 0 else base_tempo
+        tempo    = max(base_tempo, min(max_atempo, needed))
+
+        # pecah atempo agar 0.5..2.0 per langkah
+        def _atempo_chain(v: float) -> str:
+            ops, x = [], float(v)
+            while x > 2.0 + 1e-6: ops.append("atempo=2.0"); x /= 2.0
+            while x < 0.5 - 1e-6: ops.append("atempo=0.5"); x *= 2.0
+            if abs(x-1.0) > 0.02: ops.append(f"atempo={x:.3f}")
+            return ",".join(ops)
+        tempo_ops = _atempo_chain(tempo)
+
+        # chain utama (pakai min_seg_ms supaya tak 0.001)
+        dur_s = max(min_seg_ms, slot_ms) / 1000.0
+        ch = (
+            f"{in_label}aformat=channel_layouts=stereo:sample_rates=48000,"
+            f"{(tempo_ops+',') if tempo_ops else ''}"
+            f"volume={tts_vol:.3f},apad,atrim=0:{dur_s:.6f},asetpts=PTS-STARTPTS,"
+            f"adelay=delays={eff_start_ms}|{eff_start_ms}:all=1,aresample=48000{out_label}"
+        )
+        filter_parts.append(ch)
+        amixes.append(out_label)
+
+        # file segmen mandiri (untuk Play Segment)
+        seg_out = seg_dir / f"row_{row_idx}.m4a"
+        seg_ops = f"aformat=channel_layouts=stereo:sample_rates=48000,{(tempo_ops+',') if tempo_ops else ''}volume={tts_vol:.3f},apad,atrim=0:{dur_s:.6f},asetpts=PTS-STARTPTS"
+        subprocess.run(["ffmpeg","-y","-hide_banner","-loglevel","error","-i", str(f),
+                        "-af", seg_ops, "-vn","-c:a","aac","-b:a", audio_br,"-movflags","+faststart", str(seg_out)], check=False)
+
+        tempo_map[str(row_idx)] = {
+            "url": f"/api/session/{quote(session_id)}/wsfile?rel={quote(str(seg_out.relative_to(ws).as_posix()))}",
+            "tempo": float(tempo), "slot_ms": int(slot_ms), "eff_start_ms": int(eff_start_ms), "mode": "sequential"
+        }
+        plan["segments"].append({"row_idx": row_idx, "file": f.name, "tts_ms": int(tts_ms),
+                                 "slot_ms": int(slot_ms), "eff_start_ms": int(eff_start_ms),
+                                 "tempo": float(tempo), "mode": "sequential"})
+
+    # amix bertingkat
+    if not amixes:
+        raise HTTPException(400, "Tidak ada sumber audio untuk preview.")
+    parts, _ = _hier_amix(amixes, normalize=0, group=24, final_label="[aout]")
+    filter_parts += parts
+
+    # jalankan ffmpeg
+    out_path = ws / "preview_mix.m4a"
+    fc_path  = ws / "_filter_complex_preview.txt"
+    fc_text  = ";\n".join(filter_parts)
+    fc_path.write_text(fc_text, encoding="utf-8", errors="ignore")
+
+    cmd = ["ffmpeg","-y","-hide_banner","-loglevel","error"]
+    for inp in inputs: cmd += ["-i", str(inp)]
+    cmd += ["-filter_complex_script", str(fc_path), "-map","[aout]","-vn","-c:a","aac","-b:a", audio_br,"-movflags","+faststart", str(out_path)]
+    (ws/"_last_ffmpeg_preview.txt").write_text(" ".join(cmd) + "\n\n# filter_complex:\n" + fc_text, encoding="utf-8", errors="ignore")
+
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        (ws/"_ffmpeg_preview_err.txt").write_text(p.stderr or "", encoding="utf-8", errors="ignore")
+        raise HTTPException(500, "ffmpeg preview gagal. Cek _ffmpeg_preview_err.txt.")
+
+    # guard ukuran
+    sz = out_path.stat().st_size if out_path.exists() else 0
+    if sz < 4096:
+        (ws/"_ffmpeg_preview_err.txt").write_text("[guard] output too small\n", encoding="utf-8", errors="ignore")
+        raise HTTPException(500, "ffmpeg menghasilkan output terlalu kecil. Cek _ffmpeg_preview_err.txt.")
+
+    # tulis tempo_map & plan
+    tm_path = ws / "_preview_tempo_map.json"
+    tm_path.write_text(json.dumps(tempo_map, ensure_ascii=False, indent=2), encoding="utf-8")
+    plan_path = ws / "_preview_plan.json"
+    plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "ok": True,
+        "file": f"/api/session/{quote(session_id)}/wsfile?rel={quote(out_path.relative_to(ws).as_posix())}",
+        "tempo_map": f"/api/session/{quote(session_id)}/wsfile?rel={quote(tm_path.relative_to(ws).as_posix())}",
+    }
